@@ -1,0 +1,12 @@
+{
+    "recommendations": [
+        "ms-python.black-formatter",
+        "tamasfe.even-better-toml",
+        "eamodio.gitlens",
+        "ms-python.isort",
+        "ms-toolsai.jupyter",
+        "ms-python.vscode-pylance",
+        "ms-python.pylint",
+        "charliermarsh.ruff"
+    ]
+}

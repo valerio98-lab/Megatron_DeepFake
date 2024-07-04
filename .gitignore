@@ -1,0 +1,3 @@
+# To get the dataset ask for permission in the official repo
+# https://github.com/ondyari/FaceForensics
+src/scripts/get_dataset.py

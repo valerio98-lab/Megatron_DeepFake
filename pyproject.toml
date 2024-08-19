@@ -10,6 +10,11 @@ python = "^3.12"
 tqdm = "^4.66.4"
 
 
+[tool.poetry.group.dev.dependencies]
+tqdm = "^4.66.5"
+pylint = "^3.2.6"
+black = "^24.8.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

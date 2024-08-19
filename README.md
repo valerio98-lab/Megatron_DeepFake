@@ -5,7 +5,8 @@
   - [ ] effettuare un download di tutte le info specificando original_youtube_videos_info come dataset
   - [ ] effettuare un download di tutti i video specificando original-DeepFakeDetection_original come dataset
   - [ ] Scaricare 100 video di ogni tecnica di manipolazione
-- [ ] Effettuare Pre-processing
+- [ ] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
+- [ ] Impostare secondo step pipeline estrazione Depth Mask, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks. 
 
 
 **Filenames form:**

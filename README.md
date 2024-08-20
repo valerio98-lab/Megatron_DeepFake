@@ -10,7 +10,7 @@
 - [ ] Impostare secondo step pipeline estrazione Depth Mask, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
 - [ ] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
 - [ ] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
-- [ ] Logica di downsampling del Vettore di Tuple. (???)
+- [ ] Logica di downsampling del Vettore di Tuple. (???) 
 
 
 **Filenames form:**

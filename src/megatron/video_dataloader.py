@@ -1,3 +1,6 @@
+"""Module containing the definition for the dasaet and 
+dataloader"""
+
 import os
 import pathlib
 from typing import Literal
@@ -12,6 +15,21 @@ import timm
 
 
 class VideoDataset(Dataset):
+    """
+    Initializes the dataset class.
+    Args:
+        - video_dir (os.PathLike): The directory path where the video files are located.
+        - depth_anything_size (Literal["Small", "Base", "Large"], optional): The size of the depth-anything model to use.
+            Defaults to "Small".
+        - num_video (int | None, optional): The number of videos to load.
+            If None, all videos in the directory will be loaded. Defaults to None.
+        - threshold (int, optional): The threshold value for face detection. Defaults to 5.
+        - num_frame (int, optional): The number of frames to extract from each video.
+            Defaults to 1.
+        - random_initial_frame (bool, optional): Whether to randomly select the initial frame for each video.
+            Defaults to False.
+    """
+
     def __init__(
         self,
         video_dir: os.PathLike,
@@ -40,10 +58,10 @@ class VideoDataset(Dataset):
 
         self.video_files = self.__collate_video()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.video_files)
 
-    def __collate_video(self):
+    def __collate_video(self) -> list[(str, bool)]:
         cnt = 0
         video_files = []
         for root, _, files in os.walk(self.data_path):
@@ -57,20 +75,18 @@ class VideoDataset(Dataset):
                     video_files.append((complete_path, label))
         return video_files
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> np.ndarray | None:
         video_path, label = self.video_files[idx]
         cap = cv2.VideoCapture(video_path)
         # get the number of frames in the video and set the length to the minimum between
         # the number of frames and the number of frames we want to extract.
         total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         length = min(total_frame, self.num_frame)
-        initial_frame = (
-            0
-            if not self.random_initial_frame
-            else int(np.random.uniform(0, total_frame - length))
-        )
+        if self.random_initial_frame:
+            cap.set(
+                cv2.CAP_PROP_POS_FRAMES, int(np.random.uniform(0, total_frame - length))
+            )
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, initial_frame)
         frames = []
         if cap.isOpened():
             for _ in range(length):
@@ -97,6 +113,7 @@ class VideoDataset(Dataset):
             cap.release()
             if len(frames) >= self.threshold:
                 return frames
+        return None
 
     def face_extraction(self, frame):
         # frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -117,6 +134,7 @@ class VideoDataset(Dataset):
         face = Image.fromarray(face)
         depth = self.pipeline(face)["depth"]
         depth = np.array(depth)
+        depth = np.stack((depth,) * 3, axis=-1)
         return depth
 
 
@@ -190,22 +208,25 @@ class VideoDataLoader(DataLoader):
         )
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
-    DEPTH_ANYTHING_SIZE = "Small"
-    NUM_FRAMES = 5
-    BATCH_SIZE = 2
-    SHUFFLE = True
-    dataset = VideoDataset(
-        VIDEO_PATH, DEPTH_ANYTHING_SIZE, num_frame=NUM_FRAMES, num_video=BATCH_SIZE
-    )
-    dataloader = VideoDataLoader(dataset, batch_size=BATCH_SIZE, shuffle=SHUFFLE)
-    for batch in dataloader:
-        print(len(batch))
-        for elem in batch:
-            for x in elem:
-                print(len(x), end=" ")
-                # fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-                # plt.title("original" if x[2] else "manipulated")
-                print(type(x[0]), type(x[1]), type(x[2]))
+#     VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
+#     DEPTH_ANYTHING_SIZE = "Small"
+#     NUM_FRAMES = 5
+#     BATCH_SIZE = 2
+#     SHUFFLE = True
+#     dataset = VideoDataset(
+#         VIDEO_PATH,
+#         DEPTH_ANYTHING_SIZE,
+#         num_frame=NUM_FRAMES,
+#         num_video=BATCH_SIZE,
+#     )
+#     dataloader = VideoDataLoader(dataset, batch_size=BATCH_SIZE, shuffle=SHUFFLE)
+#     for batch in dataloader:
+#         print(len(batch))
+#         for elem in batch:
+#             for x in elem:
+#                 print(len(x), end=" ")
+#                 # fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+#                 # plt.title("original" if x[2] else "manipulated")
+#                 print(type(x[0]), type(x[1]), type(x[2]))

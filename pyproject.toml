@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "megatron-deepfake"
+name = "megatron"
 version = "0.1.0"
 description = "Deep fake detector using Transformers"
 authors = ["Your Name <you@example.com>"]

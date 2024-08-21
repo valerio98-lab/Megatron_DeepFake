@@ -1,14 +1,13 @@
 import os
 import pathlib
+from typing import Literal
 import cv2
 import dlib
+import numpy as np
 import torch
 import transformers
 from PIL import Image
-import numpy as np
-from torch.utils.data import Dataset, DataLoader
-import matplotlib.pyplot as plt
-from typing import Literal
+from torch.utils.data import DataLoader, Dataset
 
 
 class VideoDataset(Dataset):
@@ -58,31 +57,38 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, idx):
         video_path, label = self.video_files[idx]
-        cap = cv2.VideoCapture(video_path)
-        # get the number of frames in the video and set the length to the minimum between the number of frames and the number of frames we want to extract.
-        length = min(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), self.num_frame)
         frames = []
-        for _ in range(length):
-            if cap.isOpened():
-                ret, frame = (
-                    cap.read()
-                )  # ret is a boolean value that indicates if the frame was read correctly or not. frame is the image in BGR format.
+
+        with cv2.VideoCapture(video_path) as cap:
+            # Get the number of frames in the video and determine the extraction limit
+            length = min(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), self.num_frame)
+
+            for _ in range(length):
+                if not cap.isOpened():
+                    break
+
+                ret, frame = cap.read()
                 if not ret:
                     break
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # face cropping operations
-                face_crop = self.face_extraction(frame)
+
+                # Convert frame from BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Face extraction
+                face_crop = self.face_extraction(frame_rgb)
                 if face_crop is None:
                     break
-                # depth map operations on face_crop
+
+                # Depth map operations
                 depth_mask = self.calculate_depth_mask(face_crop)
-                # convert to tensor for RepVit model
-                face_crop = face_crop.clone().detach()
-                depth_mask = depth_mask.clone().detach()
 
-                frames.append((face_crop, depth_mask, label))
+                # Convert to tensors
+                face_crop_tensor = torch.from_numpy(face_crop)
+                depth_mask_tensor = torch.from_numpy(depth_mask)
 
-        cap.release()
+                frames.append((face_crop_tensor, depth_mask_tensor, label))
+
+        # Return frames if they meet the threshold
         if len(frames) >= self.threshold:
             return frames
 
@@ -159,24 +165,3 @@ class VideoDataLoader(DataLoader):
             shuffle=self.shuffle,
             collate_fn=self.collate_fn,
         )
-
-
-if __name__ == "__main__":
-    VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
-    DEPTH_ANYTHING_SIZE = "Small"
-    NUM_FRAMES = 5
-    BATCH_SIZE = 2
-    SHUFFLE = True
-    dataset = VideoDataset(
-        VIDEO_PATH, DEPTH_ANYTHING_SIZE, num_frame=NUM_FRAMES, num_video=BATCH_SIZE
-    )
-    dataloader = VideoDataLoader(dataset, batch_size=BATCH_SIZE, shuffle=SHUFFLE)
-
-    for batch in dataloader:
-        print(len(batch))
-        for elem in batch:
-            for x in elem:
-                print(len(x), end=" ")
-                fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-                plt.title("original" if x[2] else "manipulated")
-                print(type(x[0]), type(x[1]), type(x[2]))

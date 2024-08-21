@@ -4,8 +4,8 @@ import dlib
 # Initialize the face detector
 detector = dlib.get_frontal_face_detector()
 
-input_video_path = r"G:\My Drive\Megatron_DeepFake\dataset\original_sequences\actors\raw\videos\01__exit_phone_room.mp4"
-output_video_path = "./data/dataset/01__exit_phone_room.mp4"
+input_video_path = r"G:\My Drive\Megatron_DeepFake\dataset\original_sequences\actors\raw\videos\01__kitchen_pan.mp4"
+output_video_path = "./data/dataset/01__kitchen_pan.mp4"
 
 # Open the input video
 capture_card = cv2.VideoCapture(input_video_path)

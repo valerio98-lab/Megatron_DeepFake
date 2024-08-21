@@ -13,6 +13,7 @@ dlib = "^19.24.6"
 numpy = "1.26.0"
 opencv-python = "^4.10.0.84"
 matplotlib = "^3.9.2"
+transformers = "^4.44.1"
 
 
 [tool.poetry.group.dev.dependencies]

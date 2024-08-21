@@ -6,9 +6,9 @@
   - [x] effettuare un download di tutti i video specificando original-DeepFakeDetection_original come dataset
   - [x] Scaricare 100 video di ogni tecnica di manipolazione
 - [x] Creare Dataloader per estrazione frame con comportamento lazy iterator e preparazione funzioni di estrazione crop del viso e calcolo DepthMask.
-- [ ] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
-- [ ] Impostare secondo step pipeline estrazione Depth Mask con DepthAnything, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
-- [ ] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
+- [x] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
+- [x] Impostare secondo step pipeline estrazione Depth Mask con DepthAnything, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
+- [x] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
 - [ ] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
 - [ ] Implementazione Transformer con cross attention e successiva classificazione
 - [ ] Classificazione con Softmax

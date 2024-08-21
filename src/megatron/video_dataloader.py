@@ -8,6 +8,7 @@ import torch
 import transformers
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+import timm
 
 
 class VideoDataset(Dataset):
@@ -18,13 +19,14 @@ class VideoDataset(Dataset):
         num_video: int | None = None,
         threshold: int = 5,
         num_frame: int = 1,
+        random_initial_frame: bool = False,
     ):
         super().__init__()
         self.num_frame = num_frame
         self.threshold = threshold
         self.data_path = pathlib.Path(video_dir)
         self.num_video = num_video
-
+        self.random_initial_frame = random_initial_frame
         assert (
             self.data_path.exists()
         ), f'Watch out! "{str(self.data_path)}" was not found.'
@@ -57,43 +59,47 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, idx):
         video_path, label = self.video_files[idx]
+        cap = cv2.VideoCapture(video_path)
+        # get the number of frames in the video and set the length to the minimum between
+        # the number of frames and the number of frames we want to extract.
+        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        length = min(total_frame, self.num_frame)
+        initial_frame = (
+            0
+            if not self.random_initial_frame
+            else int(np.random.uniform(0, total_frame - length))
+        )
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, initial_frame)
         frames = []
-
-        with cv2.VideoCapture(video_path) as cap:
-            # Get the number of frames in the video and determine the extraction limit
-            length = min(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), self.num_frame)
-
+        if cap.isOpened():
             for _ in range(length):
-                if not cap.isOpened():
-                    break
-
+                # ret is a boolean value that indicates if the frame was read correctly or not.
+                # frame is the image in BGR format.
                 ret, frame = cap.read()
+
                 if not ret:
                     break
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # face cropping operations
+                face_crop = self.face_extraction(frame)
 
-                # Convert frame from BGR to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                # Face extraction
-                face_crop = self.face_extraction(frame_rgb)
                 if face_crop is None:
                     break
-
-                # Depth map operations
+                # depth map operations on face_crop
                 depth_mask = self.calculate_depth_mask(face_crop)
+                # convert to tensor for RepVit model
+                face_crop = torch.from_numpy(face_crop)
+                depth_mask = torch.from_numpy(depth_mask)
 
-                # Convert to tensors
-                face_crop_tensor = torch.from_numpy(face_crop)
-                depth_mask_tensor = torch.from_numpy(depth_mask)
+                frames.append((face_crop, depth_mask, label))
 
-                frames.append((face_crop_tensor, depth_mask_tensor, label))
-
-        # Return frames if they meet the threshold
-        if len(frames) >= self.threshold:
-            return frames
+            cap.release()
+            if len(frames) >= self.threshold:
+                return frames
 
     def face_extraction(self, frame):
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        # frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         faces = self.face_detector(frame)
         face = None
         for face_rect in faces:
@@ -118,13 +124,24 @@ class VideoDataLoader(DataLoader):
     def __init__(
         self,
         dataset,
-        RepVit_model=None,
+        repvit_model: Literal[
+            "repvit_m0_9.dist_300e_in1k",
+            "repvit_m2_3.dist_300e_in1k",
+            "repvit_m0_9.dist_300e_in1k",
+            "repvit_m1_1.dist_300e_in1k",
+            "repvit_m2_3.dist_450e_in1k",
+            "repvit_m1_5.dist_300e_in1k",
+            "repvit_m1.dist_in1k",
+        ] = "repvit_m0_9.dist_300e_in1k",
         batch_size=1,
         shuffle=True,
         custom_collate_fn=None,
     ):
         self.dataset = dataset
-        self.RepVit = RepVit_model
+        self.repvit = timm.create_model(
+            repvit_model,
+            pretrained=True,
+        ).eval()
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.collate_fn = (
@@ -143,7 +160,9 @@ class VideoDataLoader(DataLoader):
             embedded_frames = []
             for rgb_crop, depth_mask, label in video:
                 rgb_crop = rgb_crop.unsqueeze(0)
+                print(rgb_crop.shape)
                 depth_mask = depth_mask.unsqueeze(0)
+                print(depth_mask.shape)
 
                 with torch.no_grad():
                     embedded_rgb = self.get_repvit_embedding(rgb_crop)
@@ -154,9 +173,13 @@ class VideoDataLoader(DataLoader):
 
         return embedded_batch
 
-    def get_repvit_embedding(self, tensor):
-        # return self.RepVit(tensor)
-        return torch.rand(1, 10, 10)
+    def get_repvit_embedding(self, img: torch.Tensor):
+        img = img.float() / 255.0
+        print(img.shape)
+        img = img.permute(0, 3, 1, 2)
+        return self.repvit.forward_head(
+            self.repvit.forward_features(img), pre_logits=True
+        )
 
     def DataLoader(self):
         return DataLoader(
@@ -165,3 +188,24 @@ class VideoDataLoader(DataLoader):
             shuffle=self.shuffle,
             collate_fn=self.collate_fn,
         )
+
+
+if __name__ == "__main__":
+
+    VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
+    DEPTH_ANYTHING_SIZE = "Small"
+    NUM_FRAMES = 5
+    BATCH_SIZE = 2
+    SHUFFLE = True
+    dataset = VideoDataset(
+        VIDEO_PATH, DEPTH_ANYTHING_SIZE, num_frame=NUM_FRAMES, num_video=BATCH_SIZE
+    )
+    dataloader = VideoDataLoader(dataset, batch_size=BATCH_SIZE, shuffle=SHUFFLE)
+    for batch in dataloader:
+        print(len(batch))
+        for elem in batch:
+            for x in elem:
+                print(len(x), end=" ")
+                # fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+                # plt.title("original" if x[2] else "manipulated")
+                print(type(x[0]), type(x[1]), type(x[2]))

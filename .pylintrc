@@ -1,0 +1,6 @@
+[MAIN]
+extension-pkg-whitelist=cv2,dlib
+
+[TYPECHECK]
+generated-members=cv2.*,dlib.*
+

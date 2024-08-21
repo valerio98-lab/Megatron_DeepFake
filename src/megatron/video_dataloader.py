@@ -25,8 +25,13 @@ class VideoDataset(Dataset):
         assert (
             self.video_path.exists()
         ), f'Watch out! "{str(self.video_path)}" was not found.'
-        self.cap = cv2.VideoCapture(str(self.video_path))
-        self.length = min(int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)), num_frame)
+
+        self.videos = []
+        for root, _, files in os.walk("video_path"):
+            for file in files:
+                if file.endswith(".mp4"):
+                    self.videos.append(os.path.join(root, file))
+
         self.face_detector = dlib.get_frontal_face_detector()
         self.pipeline = transformers.pipeline(
             task="depth-estimation",
@@ -36,25 +41,30 @@ class VideoDataset(Dataset):
     def __len__(self):
         return self.length
 
-    # def __del__(self):
-    #     if self.cap.isOpened():
-    #         self.cap.release()
-
     def __getitem__(self, idx):
+        video_path = self.videos[idx]
+        cap = cv2.VideoCapture(str(video_path))
+        faces = []
+        face_crop = None
+        depth_mask = None
+        while len(faces) < self.num_frame:
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                ret, frame = self.cap.read()
+                # ret is a boolean value that indicates if the frame was read correctly or not. frame is the image in BGR format.
+                if ret:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    # face cropping operations
+                    face_crop = self.face_extraction(frame)
+                    if face_crop is None and len(faces) != 0:
+                        break
+                    elif face_crop is None and len(faces) > 0:
+                        continue
+                    # depth map operations on face_crop
+                    depth_mask = self.calculate_depth_mask(face_crop)
+                faces.append((face_crop, depth_mask))
 
-        if self.cap.isOpened():
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = (
-                self.cap.read()
-            )  # ret is a boolean value that indicates if the frame was read correctly or not. frame is the image in BGR format.
-            if ret:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # face cropping operations
-                face_crop = self.face_extraction(frame)
-                # depth map operations on face_crop
-                depth_mask = self.calculate_depth_mask(face_crop)
-
-                return face_crop, depth_mask
+        return faces, "original" in video_path
 
     def face_extraction(self, frame):
         # frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)

@@ -44,14 +44,73 @@ class CrossAttention(nn.Module):
         return final_output
     
 
-class Transformer(nn.Module):
-    def __init__(self, d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout, activation):
-        super(Transformer, self).__init__()
-        self.transformer = nn.Transformer(d_model=d_model, nhead=nhead, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dim_feedforward=dim_feedforward, dropout=dropout, activation=activation)
+class TransformerEncoder(nn.Module):
+    def __init__(
+            self, 
+            d_model,
+            n_heads,
+            n_layers,
+            d_ff,
+    ): 
+        super(TransformerEncoder, self).__init__()
+        self.layers = nn.ModuleList([
+            TransformerEncoderLayer(d_model, n_heads, d_ff) for _ in range(n_layers)
+        ])
+        self.cross_attn = CrossAttention(d_model, d_model, d_model)
+    
+    def forward(self, rgb_features, depth_features):
+        for layer in self.layers: 
+            rgb_embd = layer(rgb_features)
+            depth_embd = layer(depth_features)
         
-    def forward(self, src, tgt):
-        output = self.transformer(src, tgt)
+        output = self.cross_attn(rgb_embd, depth_embd)
+
         return output
 
+class TransformerEncoderLayer(nn.Module):
+    def __init__(
+            self, 
+            d_model, 
+            n_heads,
+            d_ff,
+            dropout=0.1
+    ):
+        super(TransformerEncoderLayer, self).__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads)
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x):
+        x2 = self.norm1(x)
+        x = x + self.self_attn(x2, x2, x2)[0] #skip connection
+        x2 = self.norm2(x)
+        x = x + self.dropout(F.relu(self.linear1(x2))) #skip connection with dropout
+        x = self.linear2(x)
+        return x
+
+class FeatureProjector(nn.Module):
+    def __init__(self, d_input, d_output): 
+        super(FeatureProjector, self).__init__()
+        self.projector = nn.Linear(d_input, d_output)
+    
+    def forward(self, features):
+        return self.projector(features)
 
 
+class TransformerFakeDetector(nn.Module):
+    def __init__(self, d_input_features, d_model, n_heads, n_layers, d_ff, num_classes):
+        super(TransformerFakeDetector, self).__init__()
+        self.projector = FeatureProjector(d_input_features, d_model)
+        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
+        self.classifier = nn.Linear(d_model, num_classes)
+    
+    def forward(self, rgb_features, depth_features):
+        rgb_projected = self.projector(rgb_features)
+        depth_projected = self.projector(depth_features)
+
+        output = self.encoder(rgb_projected, depth_projected)
+        logits = self.classifier(output)
+        return F.softmax(logits, dim=-1)

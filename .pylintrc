@@ -1,6 +1,20 @@
 [MAIN]
 extension-pkg-whitelist=cv2,dlib
 
+[BASIC]
+
+# Good variable names which should always be accepted, separated by a comma
+good-names=i,j,k,_,W_Q_image,W_K_image,W_V_image,W_K_depth,W_V_depth,W_Q_depth,Q_image,K_image,V_image,K_depth,V_depth,Q_depth,W_final,
+
 [TYPECHECK]
 generated-members=cv2.*,dlib.*
 
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=10
+# Maximum number of attributes for a class (see R0902).
+max-attributes=10
+max-locals=25

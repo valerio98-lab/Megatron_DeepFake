@@ -279,36 +279,35 @@ if __name__ == "__main__":
     from megatron.video_dataloader import Frame, Video
 
     model = TransformerFakeDetector(384, 2, 1, 1024, 2)
-    print(model)
 
     frame1 = [
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
     ]
 
     video1 = Video(frames=frame1, original=True)
     frame2 = [
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
         Frame(
-            rgb_frame=torch.randn(1, 384),
-            depth_frame=torch.randn(1, 384),
+            rgb_frame=torch.randn(384),
+            depth_frame=torch.randn(384),
         ),
     ]
 
@@ -317,14 +316,12 @@ if __name__ == "__main__":
     batch = [video1, video2]
     rgb1 = []
     depth1 = []
-    for video in batch:
-        rgb_frame = torch.stack([frame.rgb_frame.squeeze(0) for frame in video.frames])
-        print(rgb_frame)
-        print(rgb_frame.shape)
 
-        depth_frame = torch.stack(
-            [frame.depth_frame.squeeze(0) for frame in video.frames]
-        )
+    for video in batch:
+        rgb_frame = torch.stack([frame.rgb_frame for frame in video.frames])
+        print("depth_frame pre squeeze: ", video.frames[0].depth_frame.shape)
+        depth_frame = torch.stack([frame.depth_frame for frame in video.frames])
+        print("depth frame", depth_frame[0].shape)
         rgb1.append(rgb_frame)
         depth1.append(depth_frame)
     rgb1 = torch.stack(rgb1)

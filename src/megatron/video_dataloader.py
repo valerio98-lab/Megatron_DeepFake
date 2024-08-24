@@ -273,8 +273,8 @@ class VideoDataLoader(DataLoader):
                     embedded_rgb_frame = self.get_repvit_embedding(rgb_frame)
                     embedded_depth_frame = self.get_repvit_embedding(depth_frame)
 
-                video.frames[i].rgb_frame = embedded_rgb_frame
-                video.frames[i].depth_frame = embedded_depth_frame
+                video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
+                video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
         return batch
 
     def get_repvit_embedding(self, img: torch.Tensor) -> torch.Tensor:
@@ -297,21 +297,6 @@ class VideoDataLoader(DataLoader):
     def __iter__(self) -> Iterator[list[Video]]:
         return super().__iter__()
 
-    # def dataLoader(self):
-    #     """
-    #     Returns a DataLoader object with the specified dataset, batch size,
-    #     shuffle option, and collate function.
-
-    #     Returns:
-    #         DataLoader: A DataLoader object.
-    #     """
-    #     return DataLoader(
-    #         dataset=self.dataset,
-    #         batch_size=self.batch_size,
-    #         shuffle=self.shuffle,
-    #         collate_fn=self.collate_fn,
-    #     )
-
 
 # if __name__ == "__main__":
 
@@ -330,4 +315,4 @@ class VideoDataLoader(DataLoader):
 #     for batch in dataloader:
 #         for video in batch:
 #             for frame in video.frames:
-#                 print(frame.rgb_frame.shape, frame.depth_frame)
+#                 print(frame.rgb_frame.shape, frame.depth_frame.shape)

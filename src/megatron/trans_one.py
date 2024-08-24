@@ -5,6 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 
 
+
 class CrossAttention(nn.Module):
     """
     CrossAttention module that performs cross-attention between image and depth embeddings.
@@ -32,7 +33,7 @@ class CrossAttention(nn.Module):
         super().__init__()
         self.d_image = d_image
         self.d_depth = d_depth
-        self.d_attn = d_attn
+        self.d_attn = d_attn 
 
         self.W_Q_image = nn.Linear(d_image, d_attn)
         self.W_K_depth = nn.Linear(d_depth, d_attn)
@@ -234,11 +235,13 @@ class TransformerFakeDetector(nn.Module):
         forward(rgb_features, depth_features): Performs a forward pass through the network.
     """
 
-    def __init__(self, d_input_features, d_model, n_heads, n_layers, d_ff, num_classes):
+    def __init__(self, d_model, n_heads, n_layers, d_ff, num_classes, d_input_features=None, projector=False):
         super().__init__()
-        self.projector = FeatureProjector(d_input_features, d_model)
+        if d_input_features is not None:
+            self.projector = FeatureProjector(d_input_features, d_model)
         self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
         self.classifier = nn.Linear(d_model, num_classes)
+        self.projector = projector
 
     def forward(self, rgb_features: torch.Tensor, depth_features: torch.Tensor):
         """
@@ -249,9 +252,62 @@ class TransformerFakeDetector(nn.Module):
         Returns:
             torch.Tensor: The softmax probabilities of the output classes.
         """
-        rgb_projected = self.projector(rgb_features)
-        depth_projected = self.projector(depth_features)
+        if self.projector:
+            rgb_features = self.projector(rgb_features)
+            depth_features = self.projector(depth_features)
 
-        output = self.encoder(rgb_projected, depth_projected)
+        output = self.encoder(rgb_features, depth_features)
         logits = self.classifier(output)
-        return F.softmax(logits, dim=-1)
+        #return F.softmax(logits, dim=-1)
+        return logits
+
+
+if __name__ == "__main__":
+    from megatron.video_dataloader import Frame, Video
+
+    model = TransformerFakeDetector(384, 2, 1, 1024, 2)
+    print(model)
+
+    frame1 = [ 
+            Frame(
+                rgb_frame=torch.randn(1,384),
+                depth_frame=torch.randn(1,384),
+            ),
+            Frame(
+                rgb_frame=torch.randn(1,384),
+                depth_frame=torch.randn(1,384),
+            )
+        ]
+    
+    video1 = Video(
+        frames=frame1,
+        original=True
+    )
+    frame2 = [ 
+            Frame(
+                rgb_frame=torch.randn(1,384),
+                depth_frame=torch.randn(1,384),
+            ),
+            Frame(
+                rgb_frame=torch.randn(1,384),
+                depth_frame=torch.randn(1,384),
+            )
+        ]
+    
+    video2 = Video(
+        frames=frame2,
+        original=False
+    )
+
+    batch = [video1, video2]
+
+    for video in batch:
+        rgb_features = torch.stack([frame.rgb_features for frame in video.frames])
+        depth_features = torch.stack([frame.depth_features for frame in video.frames])
+
+        output = model(rgb_features, depth_features)
+        print(output)
+        print(output.shape)
+        print(video.label)
+        print("------")
+        print("Loss: ", F.cross_entropy(output, torch.tensor([video.label])))

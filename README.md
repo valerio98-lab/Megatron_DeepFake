@@ -9,9 +9,17 @@
 - [x] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
 - [x] Impostare secondo step pipeline estrazione Depth Mask con DepthAnything, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
 - [x] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
-- [ ] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
-- [ ] Implementazione Transformer con cross attention e successiva classificazione
-- [ ] Classificazione con Softmax
+- [x] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
+- [x] Implementazione Transformer con cross attention e successiva classificazione
+- [x] Classificazione con Softmax
+- [ ] Ricerca miglior loss per questo tipo di compiti
+- [ ] Implementare classe e logiche di training
+- [ ] Implementare classe e logiche di inferenza
+- [ ] Ottimizzazione degli Iperparametri per il transformer. 
+- [ ] Ottimizzazione iperparametri Training
+- [ ] Addestramento
+<!-- - [ ] Classificazione Softmax vs Classificazione Geometrica.  -->
+<!-- - [ ] Ricerca miglior approccio per concatenazione di depth_embedding e rgb_embedding -->
 
 
 **Filenames form:**

@@ -5,7 +5,6 @@ from torch import nn
 import torch.nn.functional as F
 
 
-
 class CrossAttention(nn.Module):
     """
     CrossAttention module that performs cross-attention between image and depth embeddings.
@@ -33,7 +32,7 @@ class CrossAttention(nn.Module):
         super().__init__()
         self.d_image = d_image
         self.d_depth = d_depth
-        self.d_attn = d_attn 
+        self.d_attn = d_attn
 
         self.W_Q_image = nn.Linear(d_image, d_attn)
         self.W_K_depth = nn.Linear(d_depth, d_attn)
@@ -133,11 +132,11 @@ class TransformerEncoder(nn.Module):
             torch.Tensor: Output of the forward pass.
         """
         for layer in self.layers:
-            rgb_embd = layer(rgb_features)
-            depth_embd = layer(depth_features)
+            # TODO: Fix, solo l'ultimo layer conta
+            rgb_features = layer(rgb_features)
+            depth_features = layer(depth_features)
 
-        output = self.cross_attn(rgb_embd, depth_embd)
-
+        output = self.cross_attn(rgb_features, depth_features)
         return output
 
 
@@ -162,7 +161,7 @@ class TransformerEncoderLayer(nn.Module):
 
     def __init__(self, d_model, n_heads, d_ff, dropout=0.1):
         super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, n_heads)
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
         self.linear1 = nn.Linear(d_model, d_ff)
         self.linear2 = nn.Linear(d_ff, d_model)
         self.norm1 = nn.LayerNorm(d_model)
@@ -179,11 +178,12 @@ class TransformerEncoderLayer(nn.Module):
         Returns:
             torch.Tensor: The output tensor.
         """
-        x2 = self.norm1(x)
-        x = x + self.self_attn(x2, x2, x2)[0]  # skip connection
-        x2 = self.norm2(x)
-        x = x + self.dropout(F.relu(self.linear1(x2)))  # skip connection with dropout
-        x = self.linear2(x)
+        x_norm1 = self.norm1(x)
+        x_attn = self.self_attn(x_norm1, x_norm1, x_norm1)[0]
+        x = x + x_attn  # skip connection
+        x_norm2 = self.norm2(x)
+        x_f1 = self.dropout(F.relu(self.linear1(x_norm2)))
+        x = x + self.linear2(x_f1)  # skip connection with dropout
         return x
 
 
@@ -235,13 +235,23 @@ class TransformerFakeDetector(nn.Module):
         forward(rgb_features, depth_features): Performs a forward pass through the network.
     """
 
-    def __init__(self, d_model, n_heads, n_layers, d_ff, num_classes, d_input_features=None, projector=False):
+    def __init__(
+        self,
+        d_model,
+        n_heads,
+        n_layers,
+        d_ff,
+        num_classes,
+        d_input_features=None,
+        projector=False,
+    ):
         super().__init__()
         if d_input_features is not None:
             self.projector = FeatureProjector(d_input_features, d_model)
         self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector = projector
+        self.pool = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, rgb_features: torch.Tensor, depth_features: torch.Tensor):
         """
@@ -257,9 +267,12 @@ class TransformerFakeDetector(nn.Module):
             depth_features = self.projector(depth_features)
 
         output = self.encoder(rgb_features, depth_features)
+        output = self.pool(output.transpose(1, 2)).squeeze(-1)
+
         logits = self.classifier(output)
-        #return F.softmax(logits, dim=-1)
-        return logits
+
+        return F.softmax(logits, dim=1)
+        # return logits
 
 
 if __name__ == "__main__":
@@ -268,46 +281,62 @@ if __name__ == "__main__":
     model = TransformerFakeDetector(384, 2, 1, 1024, 2)
     print(model)
 
-    frame1 = [ 
-            Frame(
-                rgb_frame=torch.randn(1,384),
-                depth_frame=torch.randn(1,384),
-            ),
-            Frame(
-                rgb_frame=torch.randn(1,384),
-                depth_frame=torch.randn(1,384),
-            )
-        ]
-    
-    video1 = Video(
-        frames=frame1,
-        original=True
-    )
-    frame2 = [ 
-            Frame(
-                rgb_frame=torch.randn(1,384),
-                depth_frame=torch.randn(1,384),
-            ),
-            Frame(
-                rgb_frame=torch.randn(1,384),
-                depth_frame=torch.randn(1,384),
-            )
-        ]
-    
-    video2 = Video(
-        frames=frame2,
-        original=False
-    )
+    frame1 = [
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+    ]
+
+    video1 = Video(frames=frame1, original=True)
+    frame2 = [
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+        Frame(
+            rgb_frame=torch.randn(1, 384),
+            depth_frame=torch.randn(1, 384),
+        ),
+    ]
+
+    video2 = Video(frames=frame2, original=False)
 
     batch = [video1, video2]
-
+    rgb1 = []
+    depth1 = []
     for video in batch:
-        rgb_features = torch.stack([frame.rgb_features for frame in video.frames])
-        depth_features = torch.stack([frame.depth_features for frame in video.frames])
+        rgb_frame = torch.stack([frame.rgb_frame.squeeze(0) for frame in video.frames])
+        print(rgb_frame)
+        print(rgb_frame.shape)
 
-        output = model(rgb_features, depth_features)
-        print(output)
-        print(output.shape)
-        print(video.label)
-        print("------")
-        print("Loss: ", F.cross_entropy(output, torch.tensor([video.label])))
+        depth_frame = torch.stack(
+            [frame.depth_frame.squeeze(0) for frame in video.frames]
+        )
+        rgb1.append(rgb_frame)
+        depth1.append(depth_frame)
+    rgb1 = torch.stack(rgb1)
+    print("rgb1: ", rgb1.shape)
+    depth1 = torch.stack(depth1)
+    labels = torch.tensor([int(video.original) for video in batch])
+    output = model(rgb1, depth1)
+    print(output)
+    print(output.shape)
+    print(video.original)
+    print("------")
+    print(
+        "Loss: ",
+        F.cross_entropy(output, labels),
+    )

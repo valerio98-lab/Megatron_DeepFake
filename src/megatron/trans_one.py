@@ -274,6 +274,28 @@ class TransformerFakeDetector(nn.Module):
         return F.softmax(logits, dim=1)
         # return logits
 
+    def build_input_batch(self, batch):
+        rgb_batch = []
+        depth_batch = []
+        
+        for video in batch: 
+            rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames])
+            depth_frames = torch.stack([frame.depth_frame for frame in video.frames])
+
+            rgb_batch.append(rgb_frames)
+            depth_batch.append(depth_frames)
+        
+        rgb_batch = torch.stack(rgb_batch)
+        depth_batch = torch.stack(depth_batch)
+        labels = torch.tensor([int(video.original) for video in batch])
+
+        return rgb_batch, depth_batch, labels
+
+
+class PositionalEncoding(self, d_model, dropout=0.1, max_len=5000):
+    pass
+
+
 
 if __name__ == "__main__":
     from megatron.video_dataloader import Frame, Video

@@ -252,8 +252,9 @@ class TransformerFakeDetector(nn.Module):
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector = projector
         self.pool = nn.AdaptiveAvgPool1d(1)
+        self.positional_encoding = PositionalEncoding(d_model)
 
-    def forward(self, rgb_features: torch.Tensor, depth_features: torch.Tensor):
+    def forward(self, batch: torch.Tensor):
         """
         Performs a forward pass through the network.
         Args:
@@ -262,19 +263,22 @@ class TransformerFakeDetector(nn.Module):
         Returns:
             torch.Tensor: The softmax probabilities of the output classes.
         """
-        if self.projector:
-            rgb_features = self.projector(rgb_features)
-            depth_features = self.projector(depth_features)
+        rgb_batch, depth_batch, labels = self.build_input_batch(batch)
 
-        output = self.encoder(rgb_features, depth_features)
+        if self.projector:
+            rgb_batch = self.projector(rgb_batch)
+            depth_batch = self.projector(depth_batch)
+
+        output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
 
         logits = self.classifier(output)
+        loss = F.cross_entropy(logits, labels)
+        probs = F.softmax(logits, dim=1)
 
-        return F.softmax(logits, dim=1)
-        # return logits
+        return probs, loss
 
-    def build_input_batch(self, batch):
+    def build_input_batch(self, batch:torch.Tensor):
         rgb_batch = []
         depth_batch = []
         
@@ -282,21 +286,57 @@ class TransformerFakeDetector(nn.Module):
             rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames])
             depth_frames = torch.stack([frame.depth_frame for frame in video.frames])
 
+            rgb_frames = self.positional_encoding(rgb_frames)
+            depth_frames = self.positional_encoding(depth_frames)
+
             rgb_batch.append(rgb_frames)
             depth_batch.append(depth_frames)
         
         rgb_batch = torch.stack(rgb_batch)
         depth_batch = torch.stack(depth_batch)
-        labels = torch.tensor([int(video.original) for video in batch])
-
+        #labels = torch.tensor([int(video.original) for video in batch])
+        labels = [1,0]
         return rgb_batch, depth_batch, labels
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len = 50):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        pos = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        pe[:, 0::2] = torch.sin(pos * div_term)
+        pe[:, 1::2] = torch.cos(pos * div_term)
+        self.register_buffer('pe', pe)
 
-class PositionalEncoding(self, d_model, dropout=0.1, max_len=5000):
-    pass
+    def forward(self, x):
+        seq_len, d_model = x.size()
+        x = x + self.pe[:seq_len, :]
+        return x
+    
+
+
+if __name__ == "__main__":
+
+    ## TODO: GLi aggiornamenti al transformer dovrebbero funzionare. Testa usando 
+    ## le strutture Video e Frame sostituendo l'esempio che ho messo qua sotto
+    print("Hello")
+    frame1 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
+    frame2 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
+    frame3 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
+    video1 = [frame1, frame2, frame3]
+    video2 = [frame1, frame2, frame3]
+
+    batch = [video1, video2]
+    
+    model = TransformerFakeDetector(384, 2, 1, 1024, 2)
+    output, loss = model(batch)
+    print("Output: ", output)
+    print("Shape: ", output.shape)
+    print("Loss: ", loss)
 
 
 
+"""
 if __name__ == "__main__":
     from megatron.video_dataloader import Frame, Video
 
@@ -359,3 +399,4 @@ if __name__ == "__main__":
         "Loss: ",
         F.cross_entropy(output, labels),
     )
+"""

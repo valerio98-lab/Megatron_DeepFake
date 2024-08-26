@@ -278,11 +278,11 @@ class TransformerFakeDetector(nn.Module):
 
         return probs, loss
 
-    def build_input_batch(self, batch:torch.Tensor):
+    def build_input_batch(self, batch: torch.Tensor):
         rgb_batch = []
         depth_batch = []
-        
-        for video in batch: 
+
+        for video in batch:
             rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames])
             depth_frames = torch.stack([frame.depth_frame for frame in video.frames])
 
@@ -291,112 +291,50 @@ class TransformerFakeDetector(nn.Module):
 
             rgb_batch.append(rgb_frames)
             depth_batch.append(depth_frames)
-        
+
         rgb_batch = torch.stack(rgb_batch)
         depth_batch = torch.stack(depth_batch)
         labels = torch.tensor([int(video.original) for video in batch])
-        
+
         return rgb_batch, depth_batch, labels
 
+
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len = 50):
+    def __init__(self, d_model, max_len=50):
         super().__init__()
         pe = torch.zeros(max_len, d_model)
         pos = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float()
+            * (-torch.log(torch.tensor(10000.0)) / d_model)
+        )
         pe[:, 0::2] = torch.sin(pos * div_term)
         pe[:, 1::2] = torch.cos(pos * div_term)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        seq_len, d_model = x.size()
+        seq_len, _ = x.size()
         x = x + self.pe[:seq_len, :]
         return x
-    
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    ## TODO: GLi aggiornamenti al transformer dovrebbero funzionare. Testa usando 
-    ## le strutture Video e Frame sostituendo l'esempio che ho messo qua sotto
-    print("Hello")
-    frame1 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
-    frame2 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
-    frame3 = {"rgb": torch.randn(384), "depth": torch.randn(384)}
-    video1 = [frame1, frame2, frame3]
-    video2 = [frame1, frame2, frame3]
+#     ## TODO: GLi aggiornamenti al transformer dovrebbero funzionare. Testa usando
+#     ## le strutture Video e Frame sostituendo l'esempio che ho messo qua sotto
+#     from megatron.video_dataloader import Frame, Video
 
-    batch = [video1, video2]
-    
-    model = TransformerFakeDetector(384, 2, 1, 1024, 2)
-    output, loss = model(batch)
-    print("Output: ", output)
-    print("Shape: ", output.shape)
-    print("Loss: ", loss)
+#     print("Hello")
+#     frame1 = Frame(rgb_frame=torch.randn(384), depth_frame=torch.randn(384))
+#     frame2 = Frame(rgb_frame=torch.randn(384), depth_frame=torch.randn(384))
+#     frame3 = Frame(rgb_frame=torch.randn(384), depth_frame=torch.randn(384))
+#     video1 = Video(frames=[frame1, frame2, frame3], original=True)
+#     video2 = Video(frames=[frame1, frame2, frame3], original=True)
 
+#     batch = [video1, video2]
 
-
-"""
-if __name__ == "__main__":
-    from megatron.video_dataloader import Frame, Video
-
-    model = TransformerFakeDetector(384, 2, 1, 1024, 2)
-
-    frame1 = [
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-    ]
-
-    video1 = Video(frames=frame1, original=True)
-    frame2 = [
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-        Frame(
-            rgb_frame=torch.randn(384),
-            depth_frame=torch.randn(384),
-        ),
-    ]
-
-    video2 = Video(frames=frame2, original=False)
-
-    batch = [video1, video2]
-    rgb1 = []
-    depth1 = []
-
-    for video in batch:
-        rgb_frame = torch.stack([frame.rgb_frame for frame in video.frames])
-        print("depth_frame pre squeeze: ", video.frames[0].depth_frame.shape)
-        depth_frame = torch.stack([frame.depth_frame for frame in video.frames])
-        print("depth frame", depth_frame[0].shape)
-        rgb1.append(rgb_frame)
-        depth1.append(depth_frame)
-    rgb1 = torch.stack(rgb1)
-    print("rgb1: ", rgb1.shape)
-    depth1 = torch.stack(depth1)
-    labels = torch.tensor([int(video.original) for video in batch])
-    output = model(rgb1, depth1)
-    print(output)
-    print(output.shape)
-    print(video.original)
-    print("------")
-    print(
-        "Loss: ",
-        F.cross_entropy(output, labels),
-    )
-"""
+#     model = TransformerFakeDetector(384, 2, 1, 1024, 2)
+#     output, loss = model(batch)
+#     print("Output: ", output)
+#     print("Shape: ", output.shape)
+#     print("Loss: ", loss)

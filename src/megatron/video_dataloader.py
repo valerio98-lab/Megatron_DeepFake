@@ -49,41 +49,27 @@ class Video:
 
 
 class VideoDataset(Dataset):
-    """A PyTorch dataset for loading video data.
+    """
+    A PyTorch dataset for loading video data.
+
     Args:
         video_dir (os.PathLike): The directory path where the video files are located.
         depth_anything_size (Literal["Small", "Base", "Large"], optional): The size of the depth-anything model to use.
-        Defaults to "Small".
+            Defaults to "Small".
         num_video (int | None, optional): The maximum number of videos to load.
-        If None, all videos in the directory will be loaded. Defaults to None.
+            If None, all videos in the directory will be loaded. Defaults to None.
         threshold (int, optional): The minimum number of frames required for a video to be considered valid.
-        Defaults to 5.
+            Defaults to 5.
         num_frame (int, optional): The number of frames to extract from each video.
-        Defaults to 1.
+            Defaults to 1.
         random_initial_frame (bool, optional): Whether to randomly select the initial frame for extraction.
-        Defaults to False.
-    Attributes:
-        num_frame (int): The number of frames to extract from each video.
-        threshold (int): The minimum number of frames required for a video to be considered valid.
-        data_path (pathlib.Path): The path to the video directory.
-        num_video (int | None): The maximum number of videos to load.
-        random_initial_frame (bool): Whether to randomly select the initial frame for extraction.
-        video_paths (list[str]): The list of video file paths.
-        face_detector (dlib.fhog_object_detector): The face detector model.
-        pipeline (transformers.pipelines.Pipeline): The depth estimation pipeline.
-    Methods:
-        __len__(): Returns the number of videos in the dataset.
-        __collate_video(): Collates the video file paths from the directory.
-        __getitem__(idx: int) -> Video | None: Retrieves a video and its corresponding label from the dataset.
-        face_extraction(frame: np.ndarray) -> np.ndarray | None: Extracts the face from a frame image.
-        calculate_depth_mask(face: np.ndarray) -> np.ndarray: Calculates the depth mask for a given face image.
+            Defaults to False.
     """
 
     def __init__(
         self,
         video_dir: os.PathLike,
         depth_anything_size: Literal["Small", "Base", "Large"] = "Small",
-        num_video: int | None = None,
         threshold: int = 5,
         num_frame: int = 1,
         random_initial_frame: bool = False,
@@ -92,7 +78,6 @@ class VideoDataset(Dataset):
         self.num_frame = num_frame
         self.threshold = threshold
         self.data_path = pathlib.Path(video_dir)
-        self.num_video = num_video
         self.random_initial_frame = random_initial_frame
         assert (
             self.data_path.exists()
@@ -114,8 +99,6 @@ class VideoDataset(Dataset):
         video_paths = []
         for root, _, files in os.walk(self.data_path):
             for file in files:
-                if cnt >= self.num_video and self.num_video is not None:
-                    return video_paths
                 if file.endswith(".mp4"):
                     cnt += 1
                     video_path = os.path.join(root, file)
@@ -168,14 +151,12 @@ class VideoDataset(Dataset):
         Given a frame, if a face is found it returns the image cropped around the face,
         or else returns None.
 
-        Parameters:
-        - frame: np.ndarray
-            The input frame containing the image.
+        Args:
+            frame (np.ndarray): The input frame containing the image.
 
         Returns:
-        - np.ndarray | None
-            If a face is found, it returns the cropped image around the face.
-            If no face is found, it returns None.
+            (np.ndarray | None): If a face is found, it returns the cropped image around the face.
+                If no face is found, it returns None.
         """
         faces = self.face_detector(frame)
         face = None
@@ -194,7 +175,7 @@ class VideoDataset(Dataset):
         """
         Calculates the depth mask for a given face image.
 
-            video_dir: os.PathLike,
+        Args:
             face (numpy.ndarray): The input face image as a NumPy array.
 
         Returns:
@@ -211,6 +192,7 @@ class VideoDataset(Dataset):
 class VideoDataLoader(DataLoader):
     """
     A custom data loader for loading video datasets.
+
     Args:
         dataset (VideoDataset): The video dataset to load.
         repvit_model (Literal[str]): The name of the RepVit model to use for embedding extraction.
@@ -219,16 +201,7 @@ class VideoDataLoader(DataLoader):
         shuffle (bool): Whether to shuffle the data. Default is True.
         custom_collate_fn (callable): A custom collate function to use for batching the data.
             If None, the default collate function will be used. Default is None.
-    Attributes:
-        dataset (VideoDataset): The video dataset being loaded.
-        repvit (RepVGG): The RepVGG model used for embedding extraction.
-        batch_size (int): The batch size for loading the data.
-        shuffle (bool): Whether to shuffle the data.
-        collate_fn (callable): The collate function used for batching the data.
-    Methods:
-        __collate_fn(batch): A private method that performs collation on a batch of video data.
-        get_repvit_embedding(img): Extracts the RepVGG embedding for an input image tensor.
-        DataLoader(): Returns a DataLoader object for loading the video dataset.
+
     """
 
     def __init__(

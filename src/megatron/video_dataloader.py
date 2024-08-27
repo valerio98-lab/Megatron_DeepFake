@@ -70,6 +70,7 @@ class VideoDataset(Dataset):
         self,
         video_dir: os.PathLike,
         depth_anything_size: Literal["Small", "Base", "Large"] = "Small",
+        num_video: int | None = None,
         threshold: int = 5,
         num_frame: int = 1,
         random_initial_frame: bool = False,
@@ -78,6 +79,7 @@ class VideoDataset(Dataset):
         self.num_frame = num_frame
         self.threshold = threshold
         self.data_path = pathlib.Path(video_dir)
+        self.num_video = num_video
         self.random_initial_frame = random_initial_frame
         assert (
             self.data_path.exists()
@@ -99,6 +101,8 @@ class VideoDataset(Dataset):
         video_paths = []
         for root, _, files in os.walk(self.data_path):
             for file in files:
+                if self.num_video is not None and cnt >= self.num_video:
+                    return video_paths
                 if file.endswith(".mp4"):
                     cnt += 1
                     video_path = os.path.join(root, file)
@@ -245,7 +249,6 @@ class VideoDataLoader(DataLoader):
                 with torch.no_grad():
                     embedded_rgb_frame = self.get_repvit_embedding(rgb_frame)
                     embedded_depth_frame = self.get_repvit_embedding(depth_frame)
-
                 video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
                 video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
         return batch

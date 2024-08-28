@@ -1,37 +1,80 @@
-from megatron.trans_one import TransformerFakeDetector
-from megatron.utils import save_checkpoint, save_model
+""""""
+
+from math import ceil
+from typing import Literal
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from pydantic import BaseModel, Field
+from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
-import os
+from tqdm import tqdm
+
+from megatron import DEVICE
+from megatron.trans_one import TransformerFakeDetector
+from megatron.utils import save_checkpoint, save_model
 from megatron.video_dataloader import VideoDataLoader, VideoDataset
 
-from torch.utils.data import random_split
-from tqdm import tqdm
-from math import ceil
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class DatasetConfig(BaseModel):
+    video_path: str = Field(default=r"G:\My Drive\Megatron_DeepFake\dataset")
+    num_frames: int = Field(default=20)
+    random_initial_frame: bool = Field(default=True)
+    depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
+
+
+class DataloaderConfig(BaseModel):
+    batch_size: int = Field(default=32)
+    repvit_model: Literal[
+        "repvit_m0_9.dist_300e_in1k",
+        "repvit_m2_3.dist_300e_in1k",
+        "repvit_m0_9.dist_300e_in1k",
+        "repvit_m1_1.dist_300e_in1k",
+        "repvit_m2_3.dist_450e_in1k",
+        "repvit_m1_5.dist_300e_in1k",
+        "repvit_m1.dist_in1k",
+    ] = Field(default="repvit_m0_9.dist_300e_in1k")
+
+
+class TransformerConfig(BaseModel):
+    d_model: int = Field(default=384)
+    n_heads: int = Field(default=2)
+    n_layers: int = Field(default=1)
+    d_ff: int = Field(default=1024)
+
+
+class TrainConfig(BaseModel):
+    learning_rate: float = Field(default=0.001)
+    epochs: int = Field(default=1)
+    log_dir: str
+
+
+class Config(BaseModel):
+    dataset: DatasetConfig = Field(default_factory=DatasetConfig)
+    dataloader: DataloaderConfig = Field(default_factory=DataloaderConfig)
+    transformer: TransformerConfig = Field(default_factory=TransformerConfig)
+    train: TrainConfig
 
 
 class Trainer:
-    def __init__(self, config):
+    def __init__(self, config: Config):
         self.config = config
-        self.model = self.initialize_model()
+        self.model = self.initialize_model().to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
         self.optimizer = optim.Adam(
-            self.model.parameters(), lr=config["train"]["learning_rate"]
+            self.model.parameters(), lr=config.train.learning_rate
         )
         self.criterion = nn.BCEWithLogitsLoss()
-        self.writer = SummaryWriter(log_dir=self.config["train"]["log_dir"])
+        self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
 
     def initialize_dataloader(self):
         dataset = VideoDataset(
-            video_dir=self.config["dataset"]["video_path"],
-            depth_anything_size=self.config["dataset"]["depth_anything_size"],
-            num_frame=self.config["dataset"]["num_frames"],
+            video_dir=self.config.dataset.video_path,
+            depth_anything_size=self.config.dataset.depth_anything_size,
+            num_frame=self.config.dataset.num_frames,
             num_video=20,
         )
         train_size = int(0.7 * len(dataset))
@@ -42,27 +85,27 @@ class Trainer:
         )
         train_dataloader = VideoDataLoader(
             train_dataset,
-            batch_size=self.config["dataloader"]["batch_size"],
+            batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         val_dataloader = VideoDataLoader(
             val_dataset,
-            batch_size=self.config["dataloader"]["batch_size"],
+            batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         test_dataloader = VideoDataLoader(
             test_dataset,
-            batch_size=self.config["dataloader"]["batch_size"],
+            batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         return train_dataloader, val_dataloader, test_dataloader
 
     def initialize_model(self):
         model = TransformerFakeDetector(
-            d_model=self.config["transformer"]["d_model"],
-            n_heads=self.config["transformer"]["n_heads"],
-            n_layers=self.config["transformer"]["n_layers"],
-            d_ff=self.config["transformer"]["d_ff"],
+            d_model=self.config.transformer.d_model,
+            n_heads=self.config.transformer.n_heads,
+            n_layers=self.config.transformer.n_layers,
+            d_ff=self.config.transformer.d_ff,
             num_classes=2,
         )
         return model
@@ -74,13 +117,8 @@ class Trainer:
         for batch in tqdm(
             self.train_dataloader,
             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
+            desc="Train step",
         ):
-            # Move frames to device
-            for video in batch:
-                for frame in video.frames:
-                    frame.depth_frame = frame.depth_frame.to(DEVICE)
-                    frame.rgb_frame = frame.rgb_frame.to(DEVICE)
-
             # Forward pass
             _, loss = self.model(batch)
             train_loss += loss.item()
@@ -89,13 +127,6 @@ class Trainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
-            # Free up memory
-            for video in batch:
-                for frame in video.frames:
-                    frame.depth_frame = frame.depth_frame.detach().cpu()
-                    frame.rgb_frame = frame.rgb_frame.detach().cpu()
-
         train_loss /= len(self.train_dataloader)
         return train_loss
 
@@ -107,22 +138,12 @@ class Trainer:
             for batch in tqdm(
                 self.val_dataloader,
                 total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
+                desc="Validation step",
             ):
-                # Move frames to device
-                for video in batch:
-                    for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.to(DEVICE)
-                        frame.rgb_frame = frame.rgb_frame.to(DEVICE)
 
                 # Forward pass
                 _, loss = self.model(batch)
                 validation_loss += loss.item()
-
-                # Free up memory
-                for video in batch:
-                    for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.detach().cpu()
-                        frame.rgb_frame = frame.rgb_frame.detach().cpu()
 
         validation_loss /= len(self.val_dataloader)
         return validation_loss
@@ -131,9 +152,9 @@ class Trainer:
         self.model.train()
 
         for epoch in tqdm(
-            range(self.config["train"]["epochs"]),
-            total=self.config["train"]["epochs"],
-            desc="Training",
+            range(self.config.train.epochs),
+            total=self.config.train.epochs,
+            desc="Training and validating",
         ):
             # Training and validation steps
             train_loss = self._train_step()
@@ -142,7 +163,7 @@ class Trainer:
             # Save checkpoint
             print("SAVING CHECKPOINT...")
             save_checkpoint(
-                self.model, epoch, self.optimizer, self.config["train"]["log_dir"]
+                self.model, epoch, self.optimizer, self.config.train.log_dir
             )
 
             # Log to TensorBoard
@@ -160,7 +181,7 @@ class Trainer:
         self.writer.close()
 
         # Save final model
-        save_model(self.model, self.config["train"]["log_dir"])
+        save_model(self.model, self.config.train.log_dir)
 
 
 if __name__ == "__main__":
@@ -168,15 +189,23 @@ if __name__ == "__main__":
         {
             "dataset": {
                 "video_path": r"G:\My Drive\Megatron_DeepFake\dataset",
-                "num_frames": 20,
+                "num_frames": 5,
                 "random_initial_frame": True,
                 "depth_anything_size": "Small",
+                "train_size": 0.5,
+                "val_size": 0.3,
+                "test_size": 0.2,
             },
             "dataloader": {
-                "batch_size": 2,
+                "batch_size": 1,
                 "repvit_model": "repvit_m0_9.dist_300e_in1k",
             },
-            "transformer": {"d_model": 384, "n_heads": 2, "n_layers": 1, "d_ff": 1024},
+            "transformer": {
+                "d_model": 384,
+                "n_heads": 2,
+                "n_layers": 1,
+                "d_ff": 1024,
+            },
             "train": {
                 "learning_rate": 0.001,
                 "epochs": 1,
@@ -187,5 +216,5 @@ if __name__ == "__main__":
     ]
 
     for config in experiments:
-        trainer = Trainer(config)
+        trainer = Trainer(Config(**config))
         trainer.train()

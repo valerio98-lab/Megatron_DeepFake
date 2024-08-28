@@ -1,10 +1,10 @@
 """Definition of one the main transformer, Transformer One"""
 
+from megatron import DEVICE
+
 import torch
 from torch import nn
 import torch.nn.functional as F
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class CrossAttention(nn.Module):
     """
@@ -244,14 +244,14 @@ class TransformerFakeDetector(nn.Module):
         d_ff,
         num_classes,
         d_input_features=None,
-        projector=False,
+        projector_bool=False,
     ):
         super().__init__()
         if d_input_features is not None:
             self.projector = FeatureProjector(d_input_features, d_model)
         self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
         self.classifier = nn.Linear(d_model, num_classes)
-        self.projector = projector
+        self.projector_bool = projector_bool
         self.pool = nn.AdaptiveAvgPool1d(1)
         self.positional_encoding = PositionalEncoding(d_model)
 
@@ -266,18 +266,26 @@ class TransformerFakeDetector(nn.Module):
         """
         rgb_batch, depth_batch, labels = self.build_input_batch(batch)
 
-        if self.projector:
+        rgb_batch = rgb_batch.to(DEVICE)     
+        depth_batch = rgb_batch.to(DEVICE) 
+
+        if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)
             depth_batch = self.projector(depth_batch)
+        
 
         output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
 
+        rgb_batch = rgb_batch.detach().cpu()
+        depth_batch = rgb_batch.detach().cpu()
+
         logits = self.classifier(output)
         loss = F.cross_entropy(logits, labels)
-        probs = F.softmax(logits, dim=1)
 
-        return probs, loss
+        output = output.detach().cpu()
+
+        return logits, loss
 
     def build_input_batch(self, batch: torch.Tensor):
         rgb_batch = []

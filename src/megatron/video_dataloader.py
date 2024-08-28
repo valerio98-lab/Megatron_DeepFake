@@ -93,7 +93,6 @@ class VideoDataset(Dataset):
         self.pipeline = transformers.pipeline(
             task="depth-estimation",
             model=f"depth-anything/Depth-Anything-V2-{depth_anything_size}-hf",
-            device=DEVICE,
         )
 
     def __len__(self) -> int:
@@ -247,11 +246,11 @@ class VideoDataLoader(DataLoader):
     def __collate_fn(self, batch: list[Video]) -> list[Video]:
         for video in batch:
             for i, frame in enumerate(video.frames):
-                rgb_frame = frame.rgb_frame.unsqueeze(0)
-                depth_frame = frame.depth_frame.unsqueeze(0)
+                rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
+                depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
                 with torch.no_grad():
-                    embedded_rgb_frame = self.get_repvit_embedding(rgb_frame)
-                    embedded_depth_frame = self.get_repvit_embedding(depth_frame)
+                    embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
+                    embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
                 video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
                 video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
         return batch

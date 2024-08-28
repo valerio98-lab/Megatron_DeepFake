@@ -88,8 +88,7 @@ class VideoDataset(Dataset):
         video_path = self.video_paths[idx]
         label = "manipulated" in video_path
         cap = cv2.VideoCapture(video_path)
-        # Get the number of frames in the video and set the length to the minimum between
-        # the number of frames and the number of frames we want to extract.
+
         total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         length = min(total_frame, self.num_frame)
         if self.random_initial_frame:
@@ -101,23 +100,25 @@ class VideoDataset(Dataset):
         depth_frames = []
         if cap.isOpened():
             for _ in range(length):
-                # ret is a boolean value that indicates if the frame was read correctly or not.
-                # frame is the image in BGR format.
                 ret, frame = cap.read()
 
                 if not ret:
                     break
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # Face cropping operations
                 face_crop = self.face_extraction(frame)
 
                 if face_crop is None:
                     break
-                # Depth map operations on face_crop
+
                 depth_mask = self.calculate_depth_mask(face_crop)
-                # Convert to tensor for RepVit model
-                face_crop = torch.from_numpy(face_crop)
-                depth_mask = torch.from_numpy(depth_mask)
+
+                # Ensure the number of channels is consistent and move channel dimension to the first
+                face_crop = torch.from_numpy(face_crop).permute(
+                    2, 0, 1
+                )  # Change to CxHxW
+                depth_mask = torch.from_numpy(depth_mask).permute(
+                    2, 0, 1
+                )  # Change to CxHxW
 
                 rgb_frames.append(face_crop)
                 depth_frames.append(depth_mask)
@@ -129,25 +130,80 @@ class VideoDataset(Dataset):
                 max_height = max(frame.size(1) for frame in rgb_frames)
                 max_width = max(frame.size(2) for frame in rgb_frames)
 
-                # Pad the RGB frames and Depth frames
-                rgb_frames_padded = [
-                    F.pad(
-                        frame,
-                        (0, max_width - frame.size(2), 0, max_height - frame.size(1)),
-                    )
-                    for frame in rgb_frames
-                ]
-                depth_frames_padded = [
-                    F.pad(
-                        frame,
-                        (0, max_width - frame.size(2), 0, max_height - frame.size(1)),
-                    )
-                    for frame in depth_frames
-                ]
+                # print(
+                #     f"Max dimensions for padding: height={max_height}, width={max_width}"
+                # )
+
+                # Pad the RGB frames and Depth frames to the same size
+                rgb_frames_padded = []
+                depth_frames_padded = []
+                for i, (rgb_frame, depth_frame) in enumerate(
+                    zip(rgb_frames, depth_frames)
+                ):
+                    # print(f"Original RGB frame {i} size: {rgb_frame.shape}")
+                    # print(f"Original Depth frame {i} size: {depth_frame.shape}")
+
+                    # Check and apply padding if needed
+                    if (
+                        rgb_frame.size(1) != max_height
+                        or rgb_frame.size(2) != max_width
+                    ):
+                        padded_rgb = F.pad(
+                            rgb_frame,
+                            (
+                                0,
+                                max_width - rgb_frame.size(2),
+                                0,
+                                max_height - rgb_frame.size(1),
+                            ),
+                            mode="constant",
+                            value=0,
+                        )
+                        rgb_frames_padded.append(padded_rgb)
+                    else:
+                        rgb_frames_padded.append(rgb_frame)
+
+                    if (
+                        depth_frame.size(1) != max_height
+                        or depth_frame.size(2) != max_width
+                    ):
+                        padded_depth = F.pad(
+                            depth_frame,
+                            (
+                                0,
+                                max_width - depth_frame.size(2),
+                                0,
+                                max_height - depth_frame.size(1),
+                            ),
+                            mode="constant",
+                            value=0,
+                        )
+                        depth_frames_padded.append(padded_depth)
+                    else:
+                        depth_frames_padded.append(depth_frame)
+
+                    # print(
+                    #     f"Padded RGB frame {i} size: {padded_rgb.shape if rgb_frame.size(1) != max_height or rgb_frame.size(2) != max_width else rgb_frame.shape}"
+                    # )
+                    # print(
+                    #     f"Padded Depth frame {i} size: {padded_depth.shape if depth_frame.size(1) != max_height or depth_frame.size(2) != max_width else depth_frame.shape}"
+                    # )
 
                 # Stack the padded frames into tensors
-                rgb_frames_tensor = torch.stack(rgb_frames_padded)
-                depth_frames_tensor = torch.stack(depth_frames_padded)
+                try:
+                    rgb_frames_tensor = torch.stack(rgb_frames_padded)
+                    depth_frames_tensor = torch.stack(depth_frames_padded)
+                except RuntimeError as e:
+                    print(f"Error while stacking: {e}")
+                    print(
+                        "Padded RGB frames sizes:",
+                        [frame.shape for frame in rgb_frames_padded],
+                    )
+                    print(
+                        "Padded Depth frames sizes:",
+                        [frame.shape for frame in depth_frames_padded],
+                    )
+                    raise
 
                 return Video(
                     rgb_frames=rgb_frames_tensor,
@@ -242,12 +298,13 @@ class VideoDataLoader(DataLoader):
         labels = []
         depth_frames = []
         rgb_frames = []
+        batch = list(filter(None, batch))
         for video in batch:
-            # video.depth_frames = video.depth_frames.float() / 255.0
+
             video.depth_frames = self.repvit(video.depth_frames)
             video.depth_frames = self.positional_encoder(video.depth_frames)
             depth_frames.append(video.depth_frames)
-            # video.rgb_frames = video.rgb_frames.float() / 255.0
+
             video.rgb_frames = self.repvit(video.rgb_frames)
             video.depth_frames = self.positional_encoder(video.rgb_frames)
             rgb_frames.append(video.rgb_frames)

@@ -134,7 +134,6 @@ class TransformerEncoder(nn.Module):
             torch.Tensor: Output of the forward pass.
         """
         for layer in self.layers:
-            # TODO: Fix, solo l'ultimo layer conta
             rgb_features = layer(rgb_features)
             depth_features = layer(depth_features)
 
@@ -254,7 +253,6 @@ class TransformerFakeDetector(nn.Module):
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector_bool = projector_bool
         self.pool = nn.AdaptiveAvgPool1d(1)
-        self.positional_encoding = PositionalEncoding(d_model)
 
     def forward(self, rgb_batch, depth_batch, labels):
         """
@@ -277,23 +275,3 @@ class TransformerFakeDetector(nn.Module):
         loss = F.cross_entropy(logits, labels)
 
         return logits, loss
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=50):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        pos = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2).float()
-            * (-torch.log(torch.tensor(10000.0)) / d_model)
-        )
-        pe[:, 0::2] = torch.sin(pos * div_term)
-        pe[:, 1::2] = torch.cos(pos * div_term)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x):
-        print("tipo di x e shape: ", type(x), x.shape)
-        seq_len, _ = x.size()
-        x = x + self.pe[:seq_len, :]
-        return x

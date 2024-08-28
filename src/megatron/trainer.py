@@ -16,7 +16,7 @@ from megatron import DEVICE
 from megatron.trans_one import TransformerFakeDetector
 from megatron.utils import save_checkpoint, save_model
 from megatron.video_dataloader import Video, VideoDataLoader, VideoDataset
-from megatron.repvit import RepVit
+from megatron.preprocessing import RepVit, PositionalEncoding
 
 
 class DatasetConfig(BaseModel):
@@ -92,18 +92,26 @@ class Trainer:
         train_dataset, val_dataset, test_dataset = random_split(
             dataset, [train_size, val_size, test_size], generator=seed
         )
+        repvit = RepVit().to(DEVICE)
+        positional_encoder = PositionalEncoding(384).to(DEVICE)
         train_dataloader = VideoDataLoader(
             train_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         val_dataloader = VideoDataLoader(
             val_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         test_dataloader = VideoDataLoader(
             test_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
@@ -118,12 +126,18 @@ class Trainer:
             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):
 
-            rgb_batch, depth_batch, labels = self.load_batch(batch)
-            _, loss = self.model(rgb_batch, depth_batch, labels)
+            rgb_frames, depth_frames, labels = batch
+            rgb_frames = rgb_frames.to(DEVICE)
+            depth_frames = depth_frames.to(DEVICE)
+            labels = labels.to(DEVICE)
+            _, loss = self.model(rgb_frames, depth_frames, labels)
+            train_loss += loss.item()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
+            rgb_frames = rgb_frames.detach().cpu()
+            depth_frames = depth_frames.detach().cpu()
+            labels = labels.detach().cpu()
         train_loss /= len(self.train_dataloader)
         return train_loss
 
@@ -132,9 +146,15 @@ class Trainer:
         validation_loss = 0
         with torch.inference_mode():
             for batch in self.val_dataloader:
-                rgb_batch, depth_batch, labels = self.load_batch(batch)
-                _, loss = self.model(rgb_batch, depth_batch, labels)
+                rgb_frames, depth_frames, labels = batch
+                rgb_frames = rgb_frames.to(DEVICE)
+                depth_frames = depth_frames.to(DEVICE)
+                labels = labels.to(DEVICE)
+                _, loss = self.model(rgb_frames, depth_frames, labels)
                 validation_loss += loss.item()
+                rgb_frames = rgb_frames.detach().cpu()
+                depth_frames = depth_frames.detach().cpu()
+                labels = labels.detach().cpu()
         validation_loss /= len(self.val_dataloader)
 
         return validation_loss
@@ -174,28 +194,14 @@ class Trainer:
         # Save final model
         save_model(self.model, self.config.train.log_dir)
 
-    def load_batch(self, batch: List[Video]):
-        depth_frames = []
-        rgb_frames = []
-        for video in batch:
-            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
-            depth_frames.append(self.model.positional_encoding(depth_frames))
-            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
-            rgb_frames.append(self.model.positional_encoding(rgb_frames))
-
-        depth_frames = torch.stack(depth_frames)
-        rgb_frames = torch.stack(rgb_frames)
-        labels = torch.tensor([int(video.original) for video in batch]).to(DEVICE)
-        return depth_frames, rgb_frames, labels
-
 
 if __name__ == "__main__":
     experiments = [
         {
             "dataset": {
                 "video_path": r"G:\My Drive\Megatron_DeepFake\dataset",
-                "num_frames": 5,
-                "random_initial_frame": True,
+                "num_frames": 10,
+                "random_initial_frame": False,
                 "depth_anything_size": "Small",
                 "train_size": 0.5,
                 "val_size": 0.3,

@@ -124,10 +124,11 @@ class Trainer:
         for batch in tqdm(
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
-        ):
+        ):  
+            print("TRAINING...", type(batch))
             if batch is None:
                 continue
-            print("TRAINING...")
+            
             _, loss = self.model(batch)
             print("MODEL DONE...")
             train_loss += loss.item()
@@ -148,7 +149,10 @@ class Trainer:
                  self.val_dataloader,
                  total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
 
-            ):
+            ):  
+                 print("VALIDATION...", type(batch))
+                 if batch is None:
+                     continue
                  _, loss = self.model(batch)
                  validation_loss += loss.item()
          validation_loss /= len(self.val_dataloader)

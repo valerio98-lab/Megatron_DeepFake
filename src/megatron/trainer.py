@@ -23,6 +23,9 @@ class DatasetConfig(BaseModel):
     num_frames: int = Field(default=20)
     random_initial_frame: bool = Field(default=True)
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
+    num_video: int = Field(default=20)
+    frame_threshold: int = Field(default=5)
+
 
 
 class DataloaderConfig(BaseModel):
@@ -48,6 +51,8 @@ class TransformerConfig(BaseModel):
 class TrainConfig(BaseModel):
     learning_rate: float = Field(default=0.001)
     epochs: int = Field(default=1)
+    train_size: float = Field(default=0.5)
+    val_size: float = Field(default=0.3)
     log_dir: str
 
 
@@ -76,10 +81,11 @@ class Trainer:
             video_dir=self.config.dataset.video_path,
             depth_anything_size=self.config.dataset.depth_anything_size,
             num_frame=self.config.dataset.num_frames,
-            num_video=20,
+            num_video=self.config.dataset.num_video,
+            threshold=self.config.dataset.frame_threshold
         )
-        train_size = int(0.7 * len(dataset))
-        val_size = int(0.15 * len(dataset))
+        train_size = int(self.config.train.train_size * len(dataset))
+        val_size = int(self.config.train.val_size * len(dataset))
         test_size = len(dataset) - train_size - val_size
         train_dataset, val_dataset, test_dataset = random_split(
             dataset, [train_size, val_size, test_size], generator=seed
@@ -119,6 +125,8 @@ class Trainer:
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):
+            if batch is None:
+                continue
             print("TRAINING...")
             _, loss = self.model(batch)
             print("MODEL DONE...")
@@ -135,7 +143,7 @@ class Trainer:
     def _validation_step(self) -> float:
          self.model.eval()
          validation_loss = 0
-         with torch.inference_mode():
+         with torch.no_grad():
              for batch in tqdm(
                  self.val_dataloader,
                  total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
@@ -192,6 +200,7 @@ if __name__ == "__main__":
                 "num_frames": 5,
                 "random_initial_frame": True,
                 "depth_anything_size": "Small",
+                "num_video": 20,
                 "train_size": 0.5,
                 "val_size": 0.3,
                 "test_size": 0.2,

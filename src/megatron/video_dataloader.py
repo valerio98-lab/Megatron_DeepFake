@@ -73,7 +73,7 @@ class VideoDataset(Dataset):
         video_dir: os.PathLike,
         depth_anything_size: Literal["Small", "Base", "Large"] = "Small",
         num_video: int | None = None,
-        threshold: int = 5,
+        threshold: int = 1,
         num_frame: int = 1,
         random_initial_frame: bool = False,
     ):
@@ -245,14 +245,15 @@ class VideoDataLoader(DataLoader):
 
     def __collate_fn(self, batch: list[Video]) -> list[Video]:
         for video in batch:
-            for i, frame in enumerate(video.frames):
-                rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
-                depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
-                with torch.no_grad():
-                    embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
-                    embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
-                video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
-                video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
+            if video is not None:
+                for i, frame in enumerate(video.frames):
+                    rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
+                    depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
+                    with torch.no_grad():
+                        embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
+                        embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
+                    video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
+                    video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
         return batch
 
     def get_repvit_embedding(self, img: torch.Tensor) -> torch.Tensor:

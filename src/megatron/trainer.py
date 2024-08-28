@@ -121,7 +121,7 @@ class Trainer:
         ):
             print("MOVING TO DEVICE...")
             for i, video in enumerate(batch):
-                print("Video: ", i)
+                print("lunghezza batch ", len(batch))
                 for frame in video.frames:
                      frame.depth_frame = frame.depth_frame.to(DEVICE)
                      frame.rgb_frame = frame.rgb_frame.to(DEVICE)

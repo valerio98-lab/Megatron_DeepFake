@@ -1,10 +1,10 @@
-""""""
+"""Trainer class"""
 
 from math import ceil
 from typing import Literal
 
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.optim as optim
 from pydantic import BaseModel, Field
 from torch.utils.data import random_split

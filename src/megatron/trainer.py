@@ -125,9 +125,7 @@ class Trainer:
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):  
-            print("TRAINING...", type(batch))
-            if batch is None:
-                continue
+            print("TRAINING...")
             
             _, loss = self.model(batch)
             print("MODEL DONE...")
@@ -145,14 +143,13 @@ class Trainer:
          self.model.eval()
          validation_loss = 0
          with torch.no_grad():
+             print("E FINO A QUA...")
              for batch in tqdm(
                  self.val_dataloader,
-                 total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
+                 total=ceil(len(self.val_dataloader)),
 
             ):  
-                 print("VALIDATION...", type(batch))
-                 if batch is None:
-                     continue
+                 print("VALIDATION...")
                  _, loss = self.model(batch)
                  validation_loss += loss.item()
          validation_loss /= len(self.val_dataloader)
@@ -170,6 +167,7 @@ class Trainer:
         ):
             # Training and validation steps
             train_loss = self._train_step()
+            print("EXIT TRAIN...")
             validation_loss = self._validation_step()
 
             # Save checkpoint

@@ -246,14 +246,19 @@ class VideoDataLoader(DataLoader):
     def __collate_fn(self, batch: list[Video]) -> list[Video]:
         for video in batch:
             if video is not None:
+                print("video is not None")
                 for i, frame in enumerate(video.frames):
                     rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
                     depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
                     with torch.no_grad():
+                        print("VADO DI REPVIT")
                         embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
                         embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
+                        print("FINE REPVIT")
                     video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
                     video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
+                    print("APPICCICO")
+        print("RITORNO IL BATCH")
         return batch
 
     def get_repvit_embedding(self, img: torch.Tensor) -> torch.Tensor:
@@ -271,6 +276,9 @@ class VideoDataLoader(DataLoader):
         return self.repvit.forward_head(
             self.repvit.forward_features(img), pre_logits=True
         )
+
+    def __len__(self) -> int:
+        return len(self.dataset)
 
     # The only purpose for this is for helping pylint with type annotations.
     def __iter__(self) -> Iterator[list[Video]]:

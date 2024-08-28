@@ -119,6 +119,7 @@ class Trainer:
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):
+            print("MOVING TO DEVICE...")
             for i, video in enumerate(batch):
                 print("Video: ", i)
                 for frame in video.frames:

@@ -230,7 +230,7 @@ class VideoDataLoader(DataLoader):
         self.repvit = timm.create_model(
             repvit_model,
             pretrained=True,
-        ).to(DEVICE)
+        ).eval().to(DEVICE)
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.collate_fn = (

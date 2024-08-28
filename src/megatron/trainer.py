@@ -215,6 +215,6 @@ if __name__ == "__main__":
         }
     ]
 
-    for config in experiments:
-        trainer = Trainer(Config(**config))
+    for experiment in experiments:
+        trainer = Trainer(Config(**experiment))
         trainer.train()

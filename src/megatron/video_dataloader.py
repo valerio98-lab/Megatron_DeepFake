@@ -112,6 +112,7 @@ class VideoDataset(Dataset):
         return video_paths
 
     def __getitem__(self, idx: int) -> Video | None:
+        print("GET ITEM")
         video_path = self.video_paths[idx]
         label = "manipulated" in video_path
         cap = cv2.VideoCapture(video_path)

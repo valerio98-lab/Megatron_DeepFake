@@ -119,7 +119,8 @@ class Trainer:
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):
-            for video in batch:
+            for i, video in enumerate(batch):
+                print("Video: ", i)
                 for frame in video.frames:
                      frame.depth_frame = frame.depth_frame.to(DEVICE)
                      frame.rgb_frame = frame.rgb_frame.to(DEVICE)

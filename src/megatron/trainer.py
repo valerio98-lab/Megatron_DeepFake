@@ -69,7 +69,6 @@ class Trainer:
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
         ).to(DEVICE)
-        self.repvit = RepVit().eval().to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader(seed)
         )
@@ -123,7 +122,7 @@ class Trainer:
 
         for batch in tqdm(
             self.train_dataloader,
-            total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
+            total=len(self.train_dataloader),
         ):
 
             rgb_frames, depth_frames, labels = batch

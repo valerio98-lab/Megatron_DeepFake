@@ -15,6 +15,8 @@ import transformers
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
+from megatron import DEVICE
+
 
 @dataclass
 class Video:
@@ -301,12 +303,12 @@ class VideoDataLoader(DataLoader):
         batch = list(filter(None, batch))
         for video in batch:
 
-            video.depth_frames = self.repvit(video.depth_frames)
+            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
             video.depth_frames = self.positional_encoder(video.depth_frames)
             depth_frames.append(video.depth_frames)
 
-            video.rgb_frames = self.repvit(video.rgb_frames)
-            video.depth_frames = self.positional_encoder(video.rgb_frames)
+            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
+            video.rgb_frames = self.positional_encoder(video.rgb_frames)
             rgb_frames.append(video.rgb_frames)
             labels.append(int(video.original))
         depth_frames = torch.stack(depth_frames)

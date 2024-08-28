@@ -295,7 +295,7 @@ class TransformerFakeDetector(nn.Module):
 
         rgb_batch = torch.stack(rgb_batch)
         depth_batch = torch.stack(depth_batch)
-        labels = torch.tensor([int(video.original) for video in batch])
+        labels = torch.tensor([int(video.original) for video in batch]).to(DEVICE)
 
         return rgb_batch, depth_batch, labels
 

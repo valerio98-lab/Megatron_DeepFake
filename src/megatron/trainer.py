@@ -2,7 +2,7 @@
 
 from math import ceil
 from os import PathLike
-from typing import Literal
+from typing import List, Literal
 
 import torch
 from torch import nn
@@ -15,13 +15,14 @@ from tqdm import tqdm
 from megatron import DEVICE
 from megatron.trans_one import TransformerFakeDetector
 from megatron.utils import save_checkpoint, save_model
-from megatron.video_dataloader import VideoDataLoader, VideoDataset
+from megatron.video_dataloader import Video, VideoDataLoader, VideoDataset
+from megatron.repvit import RepVit
 
 
 class DatasetConfig(BaseModel):
     video_path: PathLike
     num_frames: int = Field(default=20)
-    random_initial_frame: bool = Field(default=True)
+    random_initial_frame: bool = Field(default=False)
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
 
 
@@ -61,7 +62,14 @@ class Config(BaseModel):
 class Trainer:
     def __init__(self, config: Config, seed: torch.Generator):
         self.config = config
-        self.model = self.initialize_model().to(DEVICE)
+        self.model = TransformerFakeDetector(
+            d_model=self.config.transformer.d_model,
+            n_heads=self.config.transformer.n_heads,
+            n_layers=self.config.transformer.n_layers,
+            d_ff=self.config.transformer.d_ff,
+            num_classes=2,
+        ).to(DEVICE)
+        self.repvit = RepVit().eval().to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader(seed)
         )
@@ -76,7 +84,7 @@ class Trainer:
             video_dir=self.config.dataset.video_path,
             depth_anything_size=self.config.dataset.depth_anything_size,
             num_frame=self.config.dataset.num_frames,
-            num_video=20,
+            num_video=10,
         )
         train_size = int(0.7 * len(dataset))
         val_size = int(0.15 * len(dataset))
@@ -101,62 +109,35 @@ class Trainer:
         )
         return train_dataloader, val_dataloader, test_dataloader
 
-    def initialize_model(self):
-        model = TransformerFakeDetector(
-            d_model=self.config.transformer.d_model,
-            n_heads=self.config.transformer.n_heads,
-            n_layers=self.config.transformer.n_layers,
-            d_ff=self.config.transformer.d_ff,
-            num_classes=2,
-        )
-        return model
-
     def _train_step(self) -> float:
-         self.model.train()
-         train_loss = 0
+        self.model.train()
+        train_loss = 0
 
-         for batch in tqdm(
-             self.train_dataloader,
-             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
-         ):
-             for video in batch:
-                 for frame in video.frames:
-                     frame.depth_frame = frame.depth_frame.to(DEVICE)
-                     frame.rgb_frame = frame.rgb_frame.to(DEVICE)
+        for batch in tqdm(
+            self.train_dataloader,
+            total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
+        ):
 
-             _, loss = self.model(batch)
-             train_loss += loss.item()
-             self.optimizer.zero_grad()
-             loss.backward()
-             self.optimizer.step()
-             # Free up memory
-             for video in batch:
-                 for frame in video.frames:
-                     frame.depth_frame = frame.depth_frame.detach().cpu()
-                     frame.rgb_frame = frame.rgb_frame.detach().cpu()
+            rgb_batch, depth_batch, labels = self.load_batch(batch)
+            _, loss = self.model(rgb_batch, depth_batch, labels)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
-         train_loss /= len(self.train_dataloader)
-         return train_loss
+        train_loss /= len(self.train_dataloader)
+        return train_loss
 
     def _validation_step(self) -> float:
-         self.model.eval()
-         validation_loss = 0
-         with torch.inference_mode():
-             for batch in self.val_dataloader:
-                 for video in batch:
-                     for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.to(DEVICE)
-                        frame.rgb_frame = frame.rgb_frame.to(DEVICE)
-                 _, loss = self.model(batch)
-                 validation_loss += loss.item()
-                 for video in batch:
-                     for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.detach().cpu()
-                        frame.rgb_frame = frame.rgb_frame.detach().cpu()
-         validation_loss /= len(self.val_dataloader)
+        self.model.eval()
+        validation_loss = 0
+        with torch.inference_mode():
+            for batch in self.val_dataloader:
+                rgb_batch, depth_batch, labels = self.load_batch(batch)
+                _, loss = self.model(rgb_batch, depth_batch, labels)
+                validation_loss += loss.item()
+        validation_loss /= len(self.val_dataloader)
 
-         return validation_loss
-    
+        return validation_loss
 
     def train(self):
         self.model.train()
@@ -192,6 +173,20 @@ class Trainer:
 
         # Save final model
         save_model(self.model, self.config.train.log_dir)
+
+    def load_batch(self, batch: List[Video]):
+        depth_frames = []
+        rgb_frames = []
+        for video in batch:
+            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
+            depth_frames.append(self.model.positional_encoding(depth_frames))
+            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
+            rgb_frames.append(self.model.positional_encoding(rgb_frames))
+
+        depth_frames = torch.stack(depth_frames)
+        rgb_frames = torch.stack(rgb_frames)
+        labels = torch.tensor([int(video.original) for video in batch]).to(DEVICE)
+        return depth_frames, rgb_frames, labels
 
 
 if __name__ == "__main__":

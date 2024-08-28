@@ -119,25 +119,14 @@ class Trainer:
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
         ):
-            print("MOVING TO DEVICE...")
-            for i, video in enumerate(batch):
-                print("lunghezza batch ", len(batch))
-                for frame in video.frames:
-                     frame.depth_frame = frame.depth_frame.to(DEVICE)
-                     frame.rgb_frame = frame.rgb_frame.to(DEVICE)
             print("TRAINING...")
             _, loss = self.model(batch)
+            print("MODEL DONE...")
             train_loss += loss.item()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            print("FREEING MEMORY...")
-            # Free up memory
-            for video in batch:
-                for frame in video.frames:
-                    frame.depth_frame = frame.depth_frame.detach().cpu()
-                    frame.rgb_frame = frame.rgb_frame.detach().cpu()
-            print("MEMORY FREED...")
+
         print("TRAINING DONE...")
         train_loss /= len(self.train_dataloader)
         print("TRAINING DONE...")
@@ -147,17 +136,13 @@ class Trainer:
          self.model.eval()
          validation_loss = 0
          with torch.inference_mode():
-             for batch in self.val_dataloader:
-                 for video in batch:
-                     for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.to(DEVICE)
-                        frame.rgb_frame = frame.rgb_frame.to(DEVICE)
+             for batch in tqdm(
+                 self.val_dataloader,
+                 total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
+
+            ):
                  _, loss = self.model(batch)
                  validation_loss += loss.item()
-                 for video in batch:
-                     for frame in video.frames:
-                        frame.depth_frame = frame.depth_frame.detach().cpu()
-                        frame.rgb_frame = frame.rgb_frame.detach().cpu()
          validation_loss /= len(self.val_dataloader)
 
          return validation_loss

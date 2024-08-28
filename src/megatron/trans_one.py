@@ -266,6 +266,9 @@ class TransformerFakeDetector(nn.Module):
         """
         rgb_batch, depth_batch, labels = self.build_input_batch(batch)
 
+        rgb_batch = rgb_batch.to(DEVICE)
+        depth_batch = depth_batch.to(DEVICE)
+
         if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)
             depth_batch = self.projector(depth_batch)
@@ -273,9 +276,12 @@ class TransformerFakeDetector(nn.Module):
 
         output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
-
+        
         logits = self.classifier(output)
         loss = F.cross_entropy(logits, labels)
+
+        rgb_batch = rgb_batch.detach().cpu()
+        depth_batch = depth_batch.detach().cpu()
 
         return logits, loss
 
@@ -284,9 +290,9 @@ class TransformerFakeDetector(nn.Module):
         depth_batch = []
 
         for video in batch:
-            rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames])
-            depth_frames = torch.stack([frame.depth_frame for frame in video.frames])
-
+            rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames]).to(DEVICE)
+            depth_frames = torch.stack([frame.depth_frame for frame in video.frames]).to(DEVICE)
+            
             rgb_frames = self.positional_encoding(rgb_frames)
             depth_frames = self.positional_encoding(depth_frames)
 

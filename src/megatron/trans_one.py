@@ -6,7 +6,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-
 class CrossAttention(nn.Module):
     """
     CrossAttention module that performs cross-attention between image and depth embeddings.
@@ -267,23 +266,16 @@ class TransformerFakeDetector(nn.Module):
         """
         rgb_batch, depth_batch, labels = self.build_input_batch(batch)
 
-        rgb_batch = rgb_batch.to(DEVICE)
-        depth_batch = rgb_batch.to(DEVICE)
-
         if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)
             depth_batch = self.projector(depth_batch)
+        
 
         output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
 
-        rgb_batch = rgb_batch.detach().cpu()
-        depth_batch = rgb_batch.detach().cpu()
-
         logits = self.classifier(output)
         loss = F.cross_entropy(logits, labels)
-
-        output = output.detach().cpu()
 
         return logits, loss
 
@@ -323,7 +315,6 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         seq_len, _ = x.size()
-        print(x.device, self.pe.device)
         x = x + self.pe[:seq_len, :]
         return x
 

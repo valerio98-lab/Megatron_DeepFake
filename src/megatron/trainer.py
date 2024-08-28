@@ -112,42 +112,50 @@ class Trainer:
         return model
 
     def _train_step(self) -> float:
-        self.model.train()
-        train_loss = 0
+         self.model.train()
+         train_loss = 0
 
-        for batch in tqdm(
-            self.train_dataloader,
-            total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
-            desc="Train step",
-        ):
-            # Forward pass
-            _, loss = self.model(batch)
-            train_loss += loss.item()
+         for batch in tqdm(
+             self.train_dataloader,
+             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
+         ):
+             for video in batch:
+                 for frame in video.frames:
+                     frame.depth_frame.to(DEVICE)
+                     frame.rgb_frame.to(DEVICE)
 
-            # Backward pass and optimization
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-        train_loss /= len(self.train_dataloader)
-        return train_loss
+             _, loss = self.model(batch)
+             train_loss += loss.item()
+             self.optimizer.zero_grad()
+             loss.backward()
+             self.optimizer.step()
+             # Free up memory
+             for video in batch:
+                 for frame in video.frames:
+                     frame.depth_frame.detach().cpu()
+                     frame.rgb_frame.detach().cpu()
+         train_loss /= len(self.train_dataloader)
+         return train_loss
 
     def _validation_step(self) -> float:
-        self.model.eval()
-        validation_loss = 0
+         self.model.eval()
+         validation_loss = 0
+         with torch.inference_mode():
+             for batch in self.val_dataloader:
+                 for video in batch:
+                     for frame in video.frames:
+                         frame.depth_frame.to(DEVICE)
+                         frame.rgb_frame.to(DEVICE)
+                 _, loss = self.model(batch)
+                 validation_loss += loss.item()
+                 for video in batch:
+                     for frame in video.frames:
+                         frame.depth_frame.detach().cpu()
+                         frame.rgb_frame.detach().cpu()
+         validation_loss /= len(self.val_dataloader)
 
-        with torch.inference_mode():
-            for batch in tqdm(
-                self.val_dataloader,
-                total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
-                desc="Validation step",
-            ):
-
-                # Forward pass
-                _, loss = self.model(batch)
-                validation_loss += loss.item()
-
-        validation_loss /= len(self.val_dataloader)
-        return validation_loss
+         return validation_loss
+    
 
     def train(self):
         self.model.train()

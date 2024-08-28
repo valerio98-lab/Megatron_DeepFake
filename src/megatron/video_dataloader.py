@@ -114,43 +114,60 @@ class VideoDataset(Dataset):
     def __getitem__(self, idx: int) -> Video | None:
         print("GET ITEM")
         video_path = self.video_paths[idx]
+        print(video_path)
         label = "manipulated" in video_path
+        print(label)
         cap = cv2.VideoCapture(video_path)
+        print(cap)
         # get the number of frames in the video and set the length to the minimum between
         # the number of frames and the number of frames we want to extract.
         total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(total_frame)
         length = min(total_frame, self.num_frame)
+        print(length)
         if self.random_initial_frame:
             cap.set(
                 cv2.CAP_PROP_POS_FRAMES, int(np.random.uniform(0, total_frame - length))
             )
+        print("PRIMA DEL FOR")
 
         frames = []
         if cap.isOpened():
+            print("CAP IS OPENED")
             for _ in range(length):
+                print("INIZIO FOR")
                 # ret is a boolean value that indicates if the frame was read correctly or not.
                 # frame is the image in BGR format.
                 ret, frame = cap.read()
-
+                print(ret)
                 if not ret:
                     break
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                print(frame.shape)
                 # face cropping operations
                 face_crop = self.face_extraction(frame)
+                print(face_crop)
 
                 if face_crop is None:
                     break
+                print("DOPO FACE CROP")
                 # depth map operations on face_crop
                 depth_mask = self.calculate_depth_mask(face_crop)
+                print(depth_mask)
                 # convert to tensor for RepVit model
                 face_crop = torch.from_numpy(face_crop)
                 depth_mask = torch.from_numpy(depth_mask)
+                print(face_crop.shape, depth_mask.shape)
 
                 frames.append(Frame(rgb_frame=face_crop, depth_frame=depth_mask))
-
+                print("APPENDO")
+            print("FINE FOR")
             cap.release()
+            print("FINE RELEASE")
             if len(frames) >= self.threshold:
+                print("RITORNO VIDEO")
                 return Video(frames=frames, original=label)
+        print("RITORNO NONE")
         return None
 
     def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:

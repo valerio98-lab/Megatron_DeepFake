@@ -10,7 +10,7 @@ import torch.optim as optim
 from pydantic import BaseModel, Field
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from megatron import DEVICE
 from megatron.trans_one import TransformerFakeDetector
@@ -145,14 +145,14 @@ class Trainer:
              for batch in self.val_dataloader:
                  for video in batch:
                      for frame in video.frames:
-                         frame.depth_frame.to(DEVICE)
-                         frame.rgb_frame.to(DEVICE)
+                        frame.depth_frame = frame.depth_frame.to(DEVICE)
+                        frame.rgb_frame = frame.rgb_frame.to(DEVICE)
                  _, loss = self.model(batch)
                  validation_loss += loss.item()
                  for video in batch:
                      for frame in video.frames:
-                         frame.depth_frame.detach().cpu()
-                         frame.rgb_frame.detach().cpu()
+                        frame.depth_frame = frame.depth_frame.detach().cpu()
+                        frame.rgb_frame = frame.rgb_frame.detach().cpu()
          validation_loss /= len(self.val_dataloader)
 
          return validation_loss

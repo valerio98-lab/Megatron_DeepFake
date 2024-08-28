@@ -120,9 +120,9 @@ class Trainer:
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
          ):
              for video in batch:
-                 for frame in video.frames:
-                     frame.depth_frame.to(DEVICE)
-                     frame.rgb_frame.to(DEVICE)
+                 for i, frame in enumerate(video.frames):
+                     frame.depth_frame[i] = frame.depth_frame.to(DEVICE)
+                     frame.rgb_frame[i] = frame.rgb_frame.to(DEVICE)
 
              _, loss = self.model(batch)
              train_loss += loss.item()
@@ -131,9 +131,10 @@ class Trainer:
              self.optimizer.step()
              # Free up memory
              for video in batch:
-                 for frame in video.frames:
-                     frame.depth_frame.detach().cpu()
-                     frame.rgb_frame.detach().cpu()
+                 for i, frame in enumerate(video.frames):
+                     frame.depth_frame[i] = frame.depth_frame.detach().cpu()
+                     frame.rgb_frame[i] = frame.rgb_frame.detach().cpu()
+
          train_loss /= len(self.train_dataloader)
          return train_loss
 

@@ -303,7 +303,7 @@ class TransformerFakeDetector(nn.Module):
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=50):
         super().__init__()
-        pe = torch.zeros(max_len, d_model).to(DEVICE)
+        pe = torch.zeros(max_len, d_model)
         pos = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2).float()
@@ -315,7 +315,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         seq_len, _ = x.size()
-        x = x.to(DEVICE) + self.pe[:seq_len, :]
+        x = x + self.pe[:seq_len, :]
         return x
 
 

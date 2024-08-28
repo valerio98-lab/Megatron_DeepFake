@@ -290,6 +290,9 @@ class TransformerFakeDetector(nn.Module):
         depth_batch = []
 
         for video in batch:
+            print("BUILDING BATCH..", type(video))
+            if video is None:
+                continue
             rgb_frames = torch.stack([frame.rgb_frame for frame in video.frames]).to(DEVICE)
             depth_frames = torch.stack([frame.depth_frame for frame in video.frames]).to(DEVICE)
             

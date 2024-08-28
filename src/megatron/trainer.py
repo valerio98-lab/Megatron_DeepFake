@@ -138,6 +138,7 @@ class Trainer:
                     frame.depth_frame = frame.depth_frame.detach().cpu()
                     frame.rgb_frame = frame.rgb_frame.detach().cpu()
             print("MEMORY FREED...")
+        print("TRAINING DONE...")
         train_loss /= len(self.train_dataloader)
         print("TRAINING DONE...")
         return train_loss

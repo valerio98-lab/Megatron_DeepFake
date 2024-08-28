@@ -10,7 +10,7 @@ import torch.optim as optim
 from pydantic import BaseModel, Field
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from megatron import DEVICE
 from megatron.trans_one import TransformerFakeDetector

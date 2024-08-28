@@ -3,14 +3,14 @@ dataloader"""
 
 import os
 import pathlib
-from typing import Iterator, Literal, Union
 from dataclasses import dataclass
-import torch.nn.functional as F
+from typing import Iterator, Literal, Union
 
 import cv2
 import dlib
 import numpy as np
 import torch
+import torch.nn.functional as F
 import transformers
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -68,6 +68,7 @@ class VideoDataset(Dataset):
         self.pipeline = transformers.pipeline(
             task="depth-estimation",
             model=f"depth-anything/Depth-Anything-V2-{depth_anything_size}-hf",
+            device=DEVICE,
         )
 
     def __len__(self) -> int:
@@ -88,137 +89,109 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
         video_path = self.video_paths[idx]
-        print(video_path)
-        label = "manipulated" in video_path
-        print(label)
-        cap = cv2.VideoCapture(video_path)
-        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        print(total_frame)
-        length = min(total_frame, self.num_frame)
-        print(length)
+        label = self.get_label(video_path)
+        cap = self.open_video_capture(video_path)
+        if not cap:
+            return None
+
+        total_frame, length = self.get_video_length(cap)
         if self.random_initial_frame:
-            cap.set(
-                cv2.CAP_PROP_POS_FRAMES, int(np.random.uniform(0, total_frame - length))
-            )
-        print("PRIMA DEL FOR")
+            self.set_random_start_frame(cap, total_frame, length)
 
-        rgb_frames = []
-        depth_frames = []
-        if cap.isOpened():
-            print("CAP IS OPENED")
-            for _ in range(length):
-                ret, frame = cap.read()
-                print(ret)
-                if not ret:
-                    break
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                face_crop = self.face_extraction(frame)
-                print(face_crop)
+        rgb_frames, face_crops = self.extract_frames_and_faces(cap, length)
+        cap.release()
 
-                if face_crop is None:
-                    break
+        if len(rgb_frames) < self.threshold:
+            return None
 
-                depth_mask = self.calculate_depth_mask(face_crop)
+        depth_frames = self.calculate_depth_frames(face_crops)
+        rgb_frames, depth_frames = self.pad_frames(rgb_frames, depth_frames)
 
-                # Ensure the number of channels is consistent and move channel dimension to the first
-                face_crop = torch.from_numpy(face_crop).permute(
-                    2, 0, 1
-                )  # Change to CxHxW
-                depth_mask = torch.from_numpy(depth_mask).permute(
-                    2, 0, 1
-                )  # Change to CxHxW
+        return Video(
+            rgb_frames=torch.stack(rgb_frames),
+            depth_frames=torch.stack(depth_frames),
+            original=label,
+        )
 
-                rgb_frames.append(face_crop)
-                depth_frames.append(depth_mask)
+    def get_label(self, video_path: str) -> bool:
+        return "manipulated" in video_path
 
-            cap.release()
+    def open_video_capture(self, video_path: str) -> cv2.VideoCapture:
+        cap = cv2.VideoCapture(video_path)
+        return cap if cap.isOpened() else None
 
-            if len(rgb_frames) >= self.threshold:
-                # Find the maximum dimensions for padding
-                max_height = max(frame.size(1) for frame in rgb_frames)
-                max_width = max(frame.size(2) for frame in rgb_frames)
+    def get_video_length(self, cap: cv2.VideoCapture) -> tuple[int, int]:
+        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        length = min(total_frame, self.num_frame)
+        return total_frame, length
 
-                # print(
-                #     f"Max dimensions for padding: height={max_height}, width={max_width}"
-                # )
+    def set_random_start_frame(
+        self, cap: cv2.VideoCapture, total_frame: int, length: int
+    ) -> None:
+        random_frame = int(np.random.uniform(0, total_frame - length))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
 
-                # Pad the RGB frames and Depth frames to the same size
-                rgb_frames_padded = []
-                depth_frames_padded = []
-                for i, (rgb_frame, depth_frame) in enumerate(
-                    zip(rgb_frames, depth_frames)
-                ):
-                    # print(f"Original RGB frame {i} size: {rgb_frame.shape}")
-                    # print(f"Original Depth frame {i} size: {depth_frame.shape}")
+    def extract_frames_and_faces(
+        self, cap: cv2.VideoCapture, length: int
+    ) -> tuple[list[torch.Tensor], list[np.ndarray]]:
+        rgb_frames, face_crops = [], []
+        for _ in range(length):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            face_crop = self.process_frame(frame)
+            if face_crop is None:
+                break
+            face_crops.append(face_crop)
+            rgb_frames.append(self.convert_to_tensor(face_crop))
+        return rgb_frames, face_crops
 
-                    # Check and apply padding if needed
-                    if (
-                        rgb_frame.size(1) != max_height
-                        or rgb_frame.size(2) != max_width
-                    ):
-                        padded_rgb = F.pad(
-                            rgb_frame,
-                            (
-                                0,
-                                max_width - rgb_frame.size(2),
-                                0,
-                                max_height - rgb_frame.size(1),
-                            ),
-                            mode="constant",
-                            value=0,
-                        )
-                        rgb_frames_padded.append(padded_rgb)
-                    else:
-                        rgb_frames_padded.append(rgb_frame)
+    def process_frame(self, frame: np.ndarray) -> Union[np.ndarray, None]:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return self.face_extraction(frame_rgb)
 
-                    if (
-                        depth_frame.size(1) != max_height
-                        or depth_frame.size(2) != max_width
-                    ):
-                        padded_depth = F.pad(
-                            depth_frame,
-                            (
-                                0,
-                                max_width - depth_frame.size(2),
-                                0,
-                                max_height - depth_frame.size(1),
-                            ),
-                            mode="constant",
-                            value=0,
-                        )
-                        depth_frames_padded.append(padded_depth)
-                    else:
-                        depth_frames_padded.append(depth_frame)
+    def convert_to_tensor(self, image: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(image).permute(2, 0, 1)  # Change to CxHxW
 
-                    # print(
-                    #     f"Padded RGB frame {i} size: {padded_rgb.shape if rgb_frame.size(1) != max_height or rgb_frame.size(2) != max_width else rgb_frame.shape}"
-                    # )
-                    # print(
-                    #     f"Padded Depth frame {i} size: {padded_depth.shape if depth_frame.size(1) != max_height or depth_frame.size(2) != max_width else depth_frame.shape}"
-                    # )
+    def calculate_depth_frames(
+        self, face_crops: list[np.ndarray]
+    ) -> list[torch.Tensor]:
+        depth_masks = self.calculate_depth_masks(face_crops)
+        return [self.convert_to_tensor(depth_mask) for depth_mask in depth_masks]
 
-                # Stack the padded frames into tensors
-                try:
-                    rgb_frames_tensor = torch.stack(rgb_frames_padded)
-                    depth_frames_tensor = torch.stack(depth_frames_padded)
-                except RuntimeError as e:
-                    print(f"Error while stacking: {e}")
-                    print(
-                        "Padded RGB frames sizes:",
-                        [frame.shape for frame in rgb_frames_padded],
-                    )
-                    print(
-                        "Padded Depth frames sizes:",
-                        [frame.shape for frame in depth_frames_padded],
-                    )
-                    raise
+    def pad_frames(
+        self, rgb_frames: list[torch.Tensor], depth_frames: list[torch.Tensor]
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        max_height, max_width = self.get_max_dimensions(rgb_frames)
+        rgb_frames_padded = self.pad_to_max_dimensions(
+            rgb_frames, max_height, max_width
+        )
+        depth_frames_padded = self.pad_to_max_dimensions(
+            depth_frames, max_height, max_width
+        )
+        return rgb_frames_padded, depth_frames_padded
 
-                return Video(
-                    rgb_frames=rgb_frames_tensor,
-                    depth_frames=depth_frames_tensor,
-                    original=label,
+    def get_max_dimensions(self, frames: list[torch.Tensor]) -> tuple[int, int]:
+        max_height = max(frame.size(1) for frame in frames)
+        max_width = max(frame.size(2) for frame in frames)
+        return max_height, max_width
+
+    def pad_to_max_dimensions(
+        self, frames: list[torch.Tensor], max_height: int, max_width: int
+    ) -> list[torch.Tensor]:
+        return [
+            (
+                F.pad(
+                    frame,
+                    (0, max_width - frame.size(2), 0, max_height - frame.size(1)),
+                    mode="constant",
+                    value=0,
                 )
-        return None
+                if frame.size(1) != max_height or frame.size(2) != max_width
+                else frame
+            )
+            for frame in frames
+        ]
 
     def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:
         """
@@ -245,22 +218,28 @@ class VideoDataset(Dataset):
             break  # We decided to keep only one face in case more where present.
         return face
 
-    def calculate_depth_mask(self, face: np.ndarray) -> np.ndarray:
+    def calculate_depth_masks(self, faces: list[np.ndarray]) -> list[np.ndarray]:
         """
-        Calculates the depth mask for a given face image.
+        Calculates the depth masks for a list of face images.
 
         Args:
-            face (numpy.ndarray): The input face image as a NumPy array.
+            faces (List[numpy.ndarray]): A list of face images as NumPy arrays.
 
         Returns:
-            numpy.ndarray: The depth mask as a NumPy array.
-
+            List[numpy.ndarray]: A list of depth masks as NumPy arrays.
         """
-        face = Image.fromarray(face)
-        depth = self.pipeline(face)["depth"]
-        depth = np.array(depth)
-        depth = np.stack((depth,) * 3, axis=-1)
-        return depth
+        # Convert the list of NumPy arrays to a list of PIL images
+        pil_faces = [Image.fromarray(face) for face in faces]
+
+        # Run the depth estimation pipeline on all faces at once
+        results = self.pipeline(pil_faces)
+
+        # Extract depth masks and convert them back to NumPy arrays
+        depth_masks = [
+            np.stack((np.array(result["depth"]),) * 3, axis=-1) for result in results
+        ]
+
+        return depth_masks
 
 
 class VideoDataLoader(DataLoader):
@@ -331,9 +310,9 @@ class VideoDataLoader(DataLoader):
 
 
 # if __name__ == "__main__":
-#     from megatron.preprocessing import RepVit, PositionalEncoding
+#     from megatron.preprocessing import PositionalEncoding, RepVit
 
-#     VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
+#     VIDEO_PATH = r"H:\My Drive\Megatron_DeepFake\dataset"
 #     DEPTH_ANYTHING_SIZE = "Small"
 #     NUM_FRAMES = 5
 #     BATCH_SIZE = 2
@@ -347,8 +326,8 @@ class VideoDataLoader(DataLoader):
 
 #     dataloader = VideoDataLoader(
 #         dataset,
-#         RepVit(),
-#         PositionalEncoding(384),
+#         RepVit().to(DEVICE),
+#         PositionalEncoding(384).to(DEVICE),
 #         batch_size=BATCH_SIZE,
 #         shuffle=SHUFFLE,
 #     )

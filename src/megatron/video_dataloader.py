@@ -262,20 +262,20 @@ class VideoDataLoader(DataLoader):
         )
 
     def __collate_fn(self, batch: list[Video]) -> list[Video]:
+        batch = list[filter(None, batch)]
         for video in batch:
-            if video is not None:
-                print("video is not None")
-                for i, frame in enumerate(video.frames):
-                    rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
-                    depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
-                    with torch.no_grad():
-                        print("VADO DI REPVIT")
-                        embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
-                        embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
-                        print("FINE REPVIT")
-                    video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
-                    video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
-                    print("APPICCICO")
+            print("video is not None")
+            for i, frame in enumerate(video.frames):
+                rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
+                depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
+                with torch.no_grad():
+                    print("VADO DI REPVIT")
+                    embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
+                    embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
+                    print("FINE REPVIT")
+                video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
+                video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
+                print("APPICCICO")
         print("RITORNO IL BATCH")
         return batch
 

@@ -319,11 +319,11 @@ class PositionalEncoding(nn.Module):
         )
         pe[:, 0::2] = torch.sin(pos * div_term)
         pe[:, 1::2] = torch.cos(pos * div_term)
-        pe = pe.to(DEVICE)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
         seq_len, _ = x.size()
+        print(x.device, self.pe.device)
         x = x + self.pe[:seq_len, :]
         return x
 

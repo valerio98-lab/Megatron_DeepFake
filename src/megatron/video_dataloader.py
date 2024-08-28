@@ -15,6 +15,8 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 import timm
 
+from megatron import DEVICE
+
 
 @dataclass
 class Frame:
@@ -91,6 +93,7 @@ class VideoDataset(Dataset):
         self.pipeline = transformers.pipeline(
             task="depth-estimation",
             model=f"depth-anything/Depth-Anything-V2-{depth_anything_size}-hf",
+            device=DEVICE,
         )
 
     def __len__(self) -> int:
@@ -228,7 +231,7 @@ class VideoDataLoader(DataLoader):
         self.repvit = timm.create_model(
             repvit_model,
             pretrained=True,
-        ).eval()
+        ).to(DEVICE)
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.collate_fn = (

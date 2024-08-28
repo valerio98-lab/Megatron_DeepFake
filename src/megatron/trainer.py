@@ -1,6 +1,7 @@
 """Trainer class"""
 
 from math import ceil
+from os import PathLike
 from typing import Literal
 
 import torch
@@ -18,7 +19,7 @@ from megatron.video_dataloader import VideoDataLoader, VideoDataset
 
 
 class DatasetConfig(BaseModel):
-    video_path: str = Field(default=r"G:\My Drive\Megatron_DeepFake\dataset")
+    video_path: PathLike
     num_frames: int = Field(default=20)
     random_initial_frame: bool = Field(default=True)
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
@@ -58,11 +59,11 @@ class Config(BaseModel):
 
 
 class Trainer:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, seed: torch.Generator):
         self.config = config
         self.model = self.initialize_model().to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
-            self.initialize_dataloader()
+            self.initialize_dataloader(seed)
         )
         self.optimizer = optim.Adam(
             self.model.parameters(), lr=config.train.learning_rate
@@ -70,7 +71,7 @@ class Trainer:
         self.criterion = nn.BCEWithLogitsLoss()
         self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
 
-    def initialize_dataloader(self):
+    def initialize_dataloader(self, seed: torch.Generator):
         dataset = VideoDataset(
             video_dir=self.config.dataset.video_path,
             depth_anything_size=self.config.dataset.depth_anything_size,
@@ -81,7 +82,7 @@ class Trainer:
         val_size = int(0.15 * len(dataset))
         test_size = len(dataset) - train_size - val_size
         train_dataset, val_dataset, test_dataset = random_split(
-            dataset, [train_size, val_size, test_size]
+            dataset, [train_size, val_size, test_size], generator=seed
         )
         train_dataloader = VideoDataLoader(
             train_dataset,
@@ -214,7 +215,7 @@ if __name__ == "__main__":
             },
         }
     ]
-
+    seed = torch.Generator().manual_seed(42)
     for experiment in experiments:
-        trainer = Trainer(Config(**experiment))
+        trainer = Trainer(Config(**experiment), seed)
         trainer.train()

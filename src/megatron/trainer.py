@@ -173,7 +173,7 @@ class Trainer:
         ):
             # Training and validation steps
             train_loss = self._train_step()
-            #validation_loss = self._validation_step()
+            validation_loss = self._validation_step()
 
             # Save checkpoint
             print("SAVING CHECKPOINT...")
@@ -187,7 +187,7 @@ class Trainer:
                 main_tag=f"Loss_{str(type(self.model).__name__)}",
                 tag_scalar_dict={
                     "train_loss": train_loss,
-                    "validation_loss": 0,
+                    "validation_loss": validation_loss,
                 },
                 global_step=epoch,
             )

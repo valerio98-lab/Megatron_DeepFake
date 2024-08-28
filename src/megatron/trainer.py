@@ -112,31 +112,33 @@ class Trainer:
         return model
 
     def _train_step(self) -> float:
-         self.model.train()
-         train_loss = 0
+        self.model.train()
+        train_loss = 0
 
-         for batch in tqdm(
+        for batch in tqdm(
              self.train_dataloader,
              total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
-         ):
-             for video in batch:
-                 for frame in video.frames:
+        ):
+            for video in batch:
+                for frame in video.frames:
                      frame.depth_frame = frame.depth_frame.to(DEVICE)
                      frame.rgb_frame = frame.rgb_frame.to(DEVICE)
-
-             _, loss = self.model(batch)
-             train_loss += loss.item()
-             self.optimizer.zero_grad()
-             loss.backward()
-             self.optimizer.step()
-             # Free up memory
-             for video in batch:
-                 for frame in video.frames:
-                     frame.depth_frame = frame.depth_frame.detach().cpu()
-                     frame.rgb_frame = frame.rgb_frame.detach().cpu()
-
-         train_loss /= len(self.train_dataloader)
-         return train_loss
+            print("TRAINING...")
+            _, loss = self.model(batch)
+            train_loss += loss.item()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            print("FREEING MEMORY...")
+            # Free up memory
+            for video in batch:
+                for frame in video.frames:
+                    frame.depth_frame = frame.depth_frame.detach().cpu()
+                    frame.rgb_frame = frame.rgb_frame.detach().cpu()
+            print("MEMORY FREED...")
+        train_loss /= len(self.train_dataloader)
+        print("TRAINING DONE...")
+        return train_loss
 
     def _validation_step(self) -> float:
          self.model.eval()
@@ -168,7 +170,7 @@ class Trainer:
         ):
             # Training and validation steps
             train_loss = self._train_step()
-            validation_loss = self._validation_step()
+            #validation_loss = self._validation_step()
 
             # Save checkpoint
             print("SAVING CHECKPOINT...")
@@ -182,7 +184,7 @@ class Trainer:
                 main_tag=f"Loss_{str(type(self.model).__name__)}",
                 tag_scalar_dict={
                     "train_loss": train_loss,
-                    "validation_loss": validation_loss,
+                    "validation_loss": 0,
                 },
                 global_step=epoch,
             )

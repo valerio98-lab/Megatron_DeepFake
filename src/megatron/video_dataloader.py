@@ -3,8 +3,9 @@ dataloader"""
 
 import os
 import pathlib
-from typing import Iterator, Literal
+from typing import Iterator, Literal, Union
 from dataclasses import dataclass
+import torch.nn.functional as F
 
 import cv2
 import dlib
@@ -13,41 +14,15 @@ import torch
 import transformers
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-import timm
 
 from megatron import DEVICE
 
 
 @dataclass
-class Frame:
-    """
-    Represents a frame containing an RGB frame and a depth frame.
-    Attributes:
-        rgb_frame (torch.Tensor): The RGB frame.
-        depth_frame (torch.Tensor): The depth frame.
-    """
-
-    rgb_frame: torch.Tensor
-    depth_frame: torch.Tensor
-
-    def __repr__(self):
-        return f"{type(self.rgb_frame)}, {type(self.depth_frame)}"
-
-
-@dataclass
 class Video:
-    """
-    Represents a video.
-    Attributes:
-        frames (list[Frame]): A list of frames in the video.
-        original (bool): Indicates whether the video is original or not.
-    """
-
-    frames: list[Frame]
+    rgb_frames: torch.Tensor
+    depth_frames: torch.Tensor
     original: bool
-
-    def __repr__(self):
-        return f"list[{str(self.frames[0])}], {type(self.original)}"
 
 
 class VideoDataset(Dataset):
@@ -111,16 +86,12 @@ class VideoDataset(Dataset):
                     video_paths.append(video_path)
         return video_paths
 
-    def __getitem__(self, idx: int) -> Video | None:
-        print("GET ITEM")
+    def __getitem__(self, idx: int) -> Union[Video, None]:
         video_path = self.video_paths[idx]
         print(video_path)
         label = "manipulated" in video_path
         print(label)
         cap = cv2.VideoCapture(video_path)
-        print(cap)
-        # get the number of frames in the video and set the length to the minimum between
-        # the number of frames and the number of frames we want to extract.
         total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         print(total_frame)
         length = min(total_frame, self.num_frame)
@@ -131,43 +102,122 @@ class VideoDataset(Dataset):
             )
         print("PRIMA DEL FOR")
 
-        frames = []
+        rgb_frames = []
+        depth_frames = []
         if cap.isOpened():
             print("CAP IS OPENED")
             for _ in range(length):
-                print("INIZIO FOR")
-                # ret is a boolean value that indicates if the frame was read correctly or not.
-                # frame is the image in BGR format.
                 ret, frame = cap.read()
                 print(ret)
                 if not ret:
                     break
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                print(frame.shape)
-                # face cropping operations
                 face_crop = self.face_extraction(frame)
                 print(face_crop)
 
                 if face_crop is None:
                     break
-                print("DOPO FACE CROP")
-                # depth map operations on face_crop
-                depth_mask = self.calculate_depth_mask(face_crop)
-                print(depth_mask)
-                # convert to tensor for RepVit model
-                face_crop = torch.from_numpy(face_crop)
-                depth_mask = torch.from_numpy(depth_mask)
-                print(face_crop.shape, depth_mask.shape)
 
-                frames.append(Frame(rgb_frame=face_crop, depth_frame=depth_mask))
-                print("APPENDO")
-            print("FINE FOR")
+                depth_mask = self.calculate_depth_mask(face_crop)
+
+                # Ensure the number of channels is consistent and move channel dimension to the first
+                face_crop = torch.from_numpy(face_crop).permute(
+                    2, 0, 1
+                )  # Change to CxHxW
+                depth_mask = torch.from_numpy(depth_mask).permute(
+                    2, 0, 1
+                )  # Change to CxHxW
+
+                rgb_frames.append(face_crop)
+                depth_frames.append(depth_mask)
+
             cap.release()
-            print("FINE RELEASE")
-            if len(frames) >= self.threshold:
-                print("RITORNO VIDEO")
-                return Video(frames=frames, original=label)
-        print("RITORNO NONE")
+
+            if len(rgb_frames) >= self.threshold:
+                # Find the maximum dimensions for padding
+                max_height = max(frame.size(1) for frame in rgb_frames)
+                max_width = max(frame.size(2) for frame in rgb_frames)
+
+                # print(
+                #     f"Max dimensions for padding: height={max_height}, width={max_width}"
+                # )
+
+                # Pad the RGB frames and Depth frames to the same size
+                rgb_frames_padded = []
+                depth_frames_padded = []
+                for i, (rgb_frame, depth_frame) in enumerate(
+                    zip(rgb_frames, depth_frames)
+                ):
+                    # print(f"Original RGB frame {i} size: {rgb_frame.shape}")
+                    # print(f"Original Depth frame {i} size: {depth_frame.shape}")
+
+                    # Check and apply padding if needed
+                    if (
+                        rgb_frame.size(1) != max_height
+                        or rgb_frame.size(2) != max_width
+                    ):
+                        padded_rgb = F.pad(
+                            rgb_frame,
+                            (
+                                0,
+                                max_width - rgb_frame.size(2),
+                                0,
+                                max_height - rgb_frame.size(1),
+                            ),
+                            mode="constant",
+                            value=0,
+                        )
+                        rgb_frames_padded.append(padded_rgb)
+                    else:
+                        rgb_frames_padded.append(rgb_frame)
+
+                    if (
+                        depth_frame.size(1) != max_height
+                        or depth_frame.size(2) != max_width
+                    ):
+                        padded_depth = F.pad(
+                            depth_frame,
+                            (
+                                0,
+                                max_width - depth_frame.size(2),
+                                0,
+                                max_height - depth_frame.size(1),
+                            ),
+                            mode="constant",
+                            value=0,
+                        )
+                        depth_frames_padded.append(padded_depth)
+                    else:
+                        depth_frames_padded.append(depth_frame)
+
+                    # print(
+                    #     f"Padded RGB frame {i} size: {padded_rgb.shape if rgb_frame.size(1) != max_height or rgb_frame.size(2) != max_width else rgb_frame.shape}"
+                    # )
+                    # print(
+                    #     f"Padded Depth frame {i} size: {padded_depth.shape if depth_frame.size(1) != max_height or depth_frame.size(2) != max_width else depth_frame.shape}"
+                    # )
+
+                # Stack the padded frames into tensors
+                try:
+                    rgb_frames_tensor = torch.stack(rgb_frames_padded)
+                    depth_frames_tensor = torch.stack(depth_frames_padded)
+                except RuntimeError as e:
+                    print(f"Error while stacking: {e}")
+                    print(
+                        "Padded RGB frames sizes:",
+                        [frame.shape for frame in rgb_frames_padded],
+                    )
+                    print(
+                        "Padded Depth frames sizes:",
+                        [frame.shape for frame in depth_frames_padded],
+                    )
+                    raise
+
+                return Video(
+                    rgb_frames=rgb_frames_tensor,
+                    depth_frames=depth_frames_tensor,
+                    original=label,
+                )
         return None
 
     def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:
@@ -231,24 +281,15 @@ class VideoDataLoader(DataLoader):
     def __init__(
         self,
         dataset: VideoDataset,
-        repvit_model: Literal[
-            "repvit_m0_9.dist_300e_in1k",
-            "repvit_m2_3.dist_300e_in1k",
-            "repvit_m0_9.dist_300e_in1k",
-            "repvit_m1_1.dist_300e_in1k",
-            "repvit_m2_3.dist_450e_in1k",
-            "repvit_m1_5.dist_300e_in1k",
-            "repvit_m1.dist_in1k",
-        ] = "repvit_m0_9.dist_300e_in1k",
+        repvit,
+        positional_encoder,
         batch_size=1,
         shuffle=True,
         custom_collate_fn=None,
     ):
         self.dataset = dataset
-        self.repvit = timm.create_model(
-            repvit_model,
-            pretrained=True,
-        ).eval().to(DEVICE)
+        self.repvit = repvit
+        self.positional_encoder = positional_encoder
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.collate_fn = (
@@ -261,39 +302,25 @@ class VideoDataLoader(DataLoader):
             collate_fn=self.collate_fn,
         )
 
-    def __collate_fn(self, batch: list[Video]) -> list[Video]:
-        batch = list[filter(None, batch)]
+    def __collate_fn(self, batch: list[Video]):
+        labels = []
+        depth_frames = []
+        rgb_frames = []
+        batch = list(filter(None, batch))
         for video in batch:
-            print("video is not None")
-            for i, frame in enumerate(video.frames):
-                rgb_frame = frame.rgb_frame.unsqueeze(0).to(DEVICE)
-                depth_frame = frame.depth_frame.unsqueeze(0).to(DEVICE) 
-                with torch.no_grad():
-                    print("VADO DI REPVIT")
-                    embedded_rgb_frame = self.get_repvit_embedding(rgb_frame).detach().cpu()
-                    embedded_depth_frame = self.get_repvit_embedding(depth_frame).detach().cpu()
-                    print("FINE REPVIT")
-                video.frames[i].rgb_frame = embedded_rgb_frame.squeeze(0)
-                video.frames[i].depth_frame = embedded_depth_frame.squeeze(0)
-                print("APPICCICO")
-        print("RITORNO IL BATCH")
-        return batch
 
-    def get_repvit_embedding(self, img: torch.Tensor) -> torch.Tensor:
-        """
-        Calculates the embeddings for the given image tensor using RepVit.
+            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
+            video.depth_frames = self.positional_encoder(video.depth_frames)
+            depth_frames.append(video.depth_frames)
 
-        Args:
-            img (torch.Tensor): The input image tensor.
-
-        Returns:
-            torch.Tensor: The RepVit-embedding tensor for the input image.
-        """
-        img = img.float() / 255.0
-        img = img.permute(0, 3, 1, 2)
-        return self.repvit.forward_head(
-            self.repvit.forward_features(img), pre_logits=True
-        )
+            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
+            video.rgb_frames = self.positional_encoder(video.rgb_frames)
+            rgb_frames.append(video.rgb_frames)
+            labels.append(int(video.original))
+        depth_frames = torch.stack(depth_frames)
+        rgb_frames = torch.stack(rgb_frames)
+        labels = torch.tensor(labels)
+        return rgb_frames, depth_frames, labels
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -304,6 +331,7 @@ class VideoDataLoader(DataLoader):
 
 
 # if __name__ == "__main__":
+#     from megatron.preprocessing import RepVit, PositionalEncoding
 
 #     VIDEO_PATH = r"G:\My Drive\Megatron_DeepFake\dataset"
 #     DEPTH_ANYTHING_SIZE = "Small"
@@ -314,10 +342,16 @@ class VideoDataLoader(DataLoader):
 #         VIDEO_PATH,
 #         DEPTH_ANYTHING_SIZE,
 #         num_frame=NUM_FRAMES,
-#         num_video=BATCH_SIZE,
+#         num_video=BATCH_SIZE * 2,
 #     )
-#     dataloader = VideoDataLoader(dataset, batch_size=BATCH_SIZE, shuffle=SHUFFLE)
+
+#     dataloader = VideoDataLoader(
+#         dataset,
+#         RepVit(),
+#         PositionalEncoding(384),
+#         batch_size=BATCH_SIZE,
+#         shuffle=SHUFFLE,
+#     )
 #     for batch in dataloader:
-#         for video in batch:
-#             for frame in video.frames:
-#                 print(frame.rgb_frame.shape, frame.depth_frame.shape)
+#         rgb_frames, depth_frames, labels = batch
+#         print(rgb_frames.shape)

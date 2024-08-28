@@ -12,8 +12,8 @@
 - [x] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
 - [x] Implementazione Transformer con cross attention e successiva classificazione
 - [x] Classificazione con Softmax
-- [ ] Ricerca miglior loss per questo tipo di compiti
-- [ ] Implementare classe e logiche di training
+- [ ] aaaaa
+- [x] Implementare classe e logiche di training
 - [ ] Implementare classe e logiche di inferenza
 - [ ] Ottimizzazione degli Iperparametri per il transformer. 
 - [ ] Ottimizzazione iperparametri Training

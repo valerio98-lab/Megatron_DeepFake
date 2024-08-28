@@ -2,7 +2,7 @@
 
 from math import ceil
 from os import PathLike
-from typing import Literal
+from typing import List, Literal
 
 import torch
 from torch import nn
@@ -15,13 +15,14 @@ from tqdm import tqdm
 from megatron import DEVICE
 from megatron.trans_one import TransformerFakeDetector
 from megatron.utils import save_checkpoint, save_model
-from megatron.video_dataloader import VideoDataLoader, VideoDataset
+from megatron.video_dataloader import Video, VideoDataLoader, VideoDataset
+from megatron.preprocessing import RepVit, PositionalEncoding
 
 
 class DatasetConfig(BaseModel):
     video_path: PathLike
     num_frames: int = Field(default=20)
-    random_initial_frame: bool = Field(default=True)
+    random_initial_frame: bool = Field(default=False)
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
     num_video: int = Field(default=20)
     frame_threshold: int = Field(default=5)
@@ -66,7 +67,13 @@ class Config(BaseModel):
 class Trainer:
     def __init__(self, config: Config, seed: torch.Generator):
         self.config = config
-        self.model = self.initialize_model().to(DEVICE)
+        self.model = TransformerFakeDetector(
+            d_model=self.config.transformer.d_model,
+            n_heads=self.config.transformer.n_heads,
+            n_layers=self.config.transformer.n_layers,
+            d_ff=self.config.transformer.d_ff,
+            num_classes=2,
+        ).to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader(seed)
         )
@@ -81,8 +88,7 @@ class Trainer:
             video_dir=self.config.dataset.video_path,
             depth_anything_size=self.config.dataset.depth_anything_size,
             num_frame=self.config.dataset.num_frames,
-            num_video=self.config.dataset.num_video,
-            threshold=self.config.dataset.frame_threshold
+            num_video=10,
         )
         train_size = int(self.config.train.train_size * len(dataset))
         val_size = int(self.config.train.val_size * len(dataset))
@@ -90,72 +96,72 @@ class Trainer:
         train_dataset, val_dataset, test_dataset = random_split(
             dataset, [train_size, val_size, test_size], generator=seed
         )
+        repvit = RepVit().to(DEVICE)
+        positional_encoder = PositionalEncoding(384).to(DEVICE)
         train_dataloader = VideoDataLoader(
             train_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         val_dataloader = VideoDataLoader(
             val_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         test_dataloader = VideoDataLoader(
             test_dataset,
+            repvit,
+            positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         return train_dataloader, val_dataloader, test_dataloader
-
-    def initialize_model(self):
-        model = TransformerFakeDetector(
-            d_model=self.config.transformer.d_model,
-            n_heads=self.config.transformer.n_heads,
-            n_layers=self.config.transformer.n_layers,
-            d_ff=self.config.transformer.d_ff,
-            num_classes=2,
-        )
-        return model
 
     def _train_step(self) -> float:
         self.model.train()
         train_loss = 0
 
         for batch in tqdm(
-             self.train_dataloader,
-             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
-        ):  
-            print("TRAINING...")
-            
-            _, loss = self.model(batch)
-            print("MODEL DONE...")
+            self.train_dataloader,
+            total=len(self.train_dataloader),
+        ):
+
+            rgb_frames, depth_frames, labels = batch
+            rgb_frames = rgb_frames.to(DEVICE)
+            depth_frames = depth_frames.to(DEVICE)
+            labels = labels.to(DEVICE)
+            _, loss = self.model(rgb_frames, depth_frames, labels)
             train_loss += loss.item()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
-        print("TRAINING DONE...")
+            rgb_frames = rgb_frames.detach().cpu()
+            depth_frames = depth_frames.detach().cpu()
+            labels = labels.detach().cpu()
         train_loss /= len(self.train_dataloader)
-        print("TRAINING DONE...")
         return train_loss
 
     def _validation_step(self) -> float:
-         self.model.eval()
-         validation_loss = 0
-         with torch.no_grad():
-             print("E FINO A QUA...")
-             for batch in tqdm(
-                 self.val_dataloader,
-                 total=ceil(len(self.val_dataloader)),
+        self.model.eval()
+        validation_loss = 0
+        with torch.inference_mode():
+            for batch in self.val_dataloader:
+                rgb_frames, depth_frames, labels = batch
+                rgb_frames = rgb_frames.to(DEVICE)
+                depth_frames = depth_frames.to(DEVICE)
+                labels = labels.to(DEVICE)
+                _, loss = self.model(rgb_frames, depth_frames, labels)
+                validation_loss += loss.item()
+                rgb_frames = rgb_frames.detach().cpu()
+                depth_frames = depth_frames.detach().cpu()
+                labels = labels.detach().cpu()
+        validation_loss /= len(self.val_dataloader)
 
-            ):  
-                 print("VALIDATION...")
-                 _, loss = self.model(batch)
-                 validation_loss += loss.item()
-         validation_loss /= len(self.val_dataloader)
-
-         return validation_loss
-    
+        return validation_loss
 
     def train(self):
         self.model.train()
@@ -199,8 +205,8 @@ if __name__ == "__main__":
         {
             "dataset": {
                 "video_path": r"G:\My Drive\Megatron_DeepFake\dataset",
-                "num_frames": 5,
-                "random_initial_frame": True,
+                "num_frames": 10,
+                "random_initial_frame": False,
                 "depth_anything_size": "Small",
                 "num_video": 20,
                 "train_size": 0.5,

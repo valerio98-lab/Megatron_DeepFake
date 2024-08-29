@@ -70,6 +70,8 @@ class VideoDataset(Dataset):
     def __collate_video(self) -> list[str]:
         cnt_original = 0
         video_paths = []
+        if str(self.data_path).endswith(".mp4"):
+            return [str(self.data_path)]
         for root, _, files in os.walk(self.data_path):
             for file in files:
                 if file.endswith(".mp4"):
@@ -116,7 +118,7 @@ class VideoDataset(Dataset):
         )
 
     def get_label(self, video_path: str) -> bool:
-        return "manipulated" in video_path
+        return "original" in video_path
 
     def open_video_capture(self, video_path: str) -> cv2.VideoCapture:
         cap = cv2.VideoCapture(video_path)

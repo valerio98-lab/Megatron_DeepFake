@@ -83,7 +83,6 @@ class VideoDataset(Dataset):
 
         cnt_manipulated /= len(video_paths)
         # distribution = torch.distributions.Categorical(torch.tensor([cnt_original, cnt_manipulated]))
-        print(f"{self.num_video=}")
         if self.num_video is not None and self.num_video <= len(video_paths):
             indxs = torch.randperm(self.num_video)
             return np.array(video_paths)[
@@ -302,7 +301,6 @@ class VideoDataLoader(DataLoader):
 
 if __name__ == "__main__":
     from megatron.trainer import Config, Trainer
-    import torch
 
     experiment = {
         "dataset": {
@@ -331,11 +329,11 @@ if __name__ == "__main__":
             "train_size": 0.5,
             "val_size": 0.3,
             "test_size": 0.2,
-            "seed": 42,
         },
+        "seed": 42,
     }
 
     config = Config(**experiment)
-    torch.manual_seed(config.train.seed)
+    torch.manual_seed(config.seed)
     trainer = Trainer(config)
     trainer.train()

@@ -102,7 +102,6 @@ class TrainConfig(BaseModel):
     train_size: float = Field(default=0.6)
     val_size: float = Field(default=0.3)
     test_size: float = Field(default=0.1)
-    seed: int = Field(default=42)
 
     @model_validator(mode="after")
     def check_values(self):
@@ -120,7 +119,7 @@ class TrainConfig(BaseModel):
         return (
             f"TrainConfig(learning_rate={self.learning_rate}, epochs={self.epochs}, log_dir={self.log_dir}, "
             f"early_stop_counter={self.early_stop_counter}, train_size={self.train_size}, "
-            f"val_size={self.val_size}, test_size={self.test_size}, seed={self.seed})"
+            f"val_size={self.val_size}, test_size={self.test_size})"
         )
 
 
@@ -129,6 +128,7 @@ class Config(BaseModel):
     dataloader: DataloaderConfig = Field(default_factory=DataloaderConfig)
     transformer: TransformerConfig = Field(default_factory=TransformerConfig)
     train: TrainConfig
+    seed: int = Field(default=42)
 
     def __repr__(self):
         return self.__str__()
@@ -136,7 +136,7 @@ class Config(BaseModel):
     def __str__(self):
         return (
             f"Config(\n  dataset={self.dataset},\n  dataloader={self.dataloader},\n  "
-            f"transformer={self.transformer},\n  train={self.train}\n)"
+            f"transformer={self.transformer},\n  train={self.train},\n  seed={self.seed})"
         )
 
 
@@ -159,7 +159,6 @@ class Trainer:
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
         ).to(DEVICE)
-        self.generator = torch.Generator().manual_seed(self.config.train.seed)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
@@ -181,7 +180,7 @@ class Trainer:
         val_size = int(self.config.train.val_size * len(dataset))
         test_size = len(dataset) - train_size - val_size
         train_dataset, val_dataset, test_dataset = data.random_split(
-            dataset, [train_size, val_size, test_size], generator=self.generator
+            dataset, [train_size, val_size, test_size]
         )
         train_dataloader = VideoDataLoader(
             train_dataset,

@@ -209,7 +209,7 @@ class Trainer:
     def _train_step(self) -> float:
         self.model.train()
         train_loss = 0
-
+        print(f"{len(self.train_dataloader)=}, {self.train_dataloader.batch_size=}")
         for batch in tqdm(
             self.train_dataloader,
             total=(len(self.train_dataloader) / self.train_dataloader.batch_size),

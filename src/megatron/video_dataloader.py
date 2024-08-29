@@ -83,7 +83,8 @@ class VideoDataset(Dataset):
 
         cnt_manipulated /= len(video_paths)
         # distribution = torch.distributions.Categorical(torch.tensor([cnt_original, cnt_manipulated]))
-        if self.num_video is not None and len(video_paths) <= self.num_video:
+        print(f"{self.num_video=}")
+        if self.num_video is not None and self.num_video <= len(video_paths):
             indxs = torch.randperm(self.num_video)
             return np.array(video_paths)[
                 indxs
@@ -105,7 +106,9 @@ class VideoDataset(Dataset):
         rgb_frames, face_crops = self.extract_frames_and_faces(cap, length)
         cap.release()
 
-        if len(rgb_frames) < self.threshold:
+        # if len(rgb_frames) < self.threshold:
+        if len(rgb_frames) < self.num_frame:
+
             return None
 
         depth_frames = self.calculate_depth_frames(face_crops)
@@ -297,33 +300,42 @@ class VideoDataLoader(DataLoader):
         return super().__iter__()
 
 
-# if __name__ == "__main__":
-#     from megatron.preprocessing import PositionalEncoding, RepVit
+if __name__ == "__main__":
+    from megatron.trainer import Config, Trainer
+    import torch
 
-#     VIDEO_PATH = r"H:\My Drive\Megatron_DeepFake\dataset"
-#     DEPTH_ANYTHING_SIZE = "Small"
-#     depth_anything = transformers.pipeline(
-#         task="depth-estimation",
-#         model=f"depth-anything/Depth-Anything-V2-{DEPTH_ANYTHING_SIZE}-hf",
-#         device=DEVICE,
-#     )
-#     NUM_FRAMES = 50
-#     BATCH_SIZE = 1
-#     SHUFFLE = True
-#     dataset = VideoDataset(
-#         VIDEO_PATH,
-#         depth_anything,
-#         num_frame=NUM_FRAMES,
-#         num_video=BATCH_SIZE,
-#     )
+    experiment = {
+        "dataset": {
+            "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
+            "num_frames": 5,
+            "random_initial_frame": True,
+            "depth_anything_size": "Small",
+            "num_video": 40,
+            "frame_threshold": 10,
+        },
+        "dataloader": {
+            "batch_size": 4,
+            "repvit_model": "repvit_m0_9.dist_300e_in1k",
+        },
+        "transformer": {
+            "d_model": 384,
+            "n_heads": 2,
+            "n_layers": 1,
+            "d_ff": 1024,
+        },
+        "train": {
+            "learning_rate": 0.001,
+            "epochs": 2,
+            "log_dir": "../data/runs/exp1",
+            "early_stop_counter": 10,
+            "train_size": 0.5,
+            "val_size": 0.3,
+            "test_size": 0.2,
+            "seed": 42,
+        },
+    }
 
-#     dataloader = VideoDataLoader(
-#         dataset,
-#         RepVit().to(DEVICE),
-#         PositionalEncoding(384).to(DEVICE),
-#         batch_size=BATCH_SIZE,
-#         shuffle=SHUFFLE,
-#     )
-#     for batch in dataloader:
-#         rgb_frames, depth_frames, labels = batch
-#         print(rgb_frames.shape)
+    config = Config(**experiment)
+    torch.manual_seed(config.train.seed)
+    trainer = Trainer(config)
+    trainer.train()

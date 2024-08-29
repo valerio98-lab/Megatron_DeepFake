@@ -1,22 +1,24 @@
 """Trainer class"""
 
-from math import ceil
 from os import PathLike
-from typing import List, Literal
+from typing import Literal
 
 import torch
-from torch import nn
+from torch.utils import data
+from torch.utils import tensorboard
 import torch.optim as optim
-from pydantic import BaseModel, Field
-from torch.utils.data import random_split
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+
+# from torch.utils.data import random_split
+# from torch.utils.tensorboard import SummaryWriter
+import transformers
+from pydantic import BaseModel, Field, model_validator
+from tqdm.auto import tqdm
 
 from megatron import DEVICE
+from megatron.preprocessing import PositionalEncoding, RepVit
 from megatron.trans_one import TransformerFakeDetector
 from megatron.utils import save_checkpoint, save_model
-from megatron.video_dataloader import Video, VideoDataLoader, VideoDataset
-from megatron.preprocessing import RepVit, PositionalEncoding
+from megatron.video_dataloader import VideoDataLoader, VideoDataset
 
 
 class DatasetConfig(BaseModel):
@@ -28,18 +30,27 @@ class DatasetConfig(BaseModel):
     frame_threshold: int = Field(default=5)
 
 
-
 class DataloaderConfig(BaseModel):
     batch_size: int = Field(default=32)
-    repvit_model: Literal[
-        "repvit_m0_9.dist_300e_in1k",
-        "repvit_m2_3.dist_300e_in1k",
-        "repvit_m0_9.dist_300e_in1k",
-        "repvit_m1_1.dist_300e_in1k",
-        "repvit_m2_3.dist_450e_in1k",
-        "repvit_m1_5.dist_300e_in1k",
-        "repvit_m1.dist_in1k",
-    ] = Field(default="repvit_m0_9.dist_300e_in1k")
+    repvit_model: str = Field(default="repvit_m0_9.dist_300e_in1k")
+
+    @model_validator(mode="after")
+    def check_values(self):
+        repvit_models = [
+            "repvit_m0_9.dist_300e_in1k",
+            "repvit_m2_3.dist_300e_in1k",
+            "repvit_m0_9.dist_300e_in1k",
+            "repvit_m1_1.dist_300e_in1k",
+            "repvit_m2_3.dist_450e_in1k",
+            "repvit_m1_5.dist_300e_in1k",
+            "repvit_m1.dist_in1k",
+        ]
+        if self.repvit_model not in repvit_models:
+            raise ValueError(
+                f"repvit_model must a value from {repvit_models}, but got {self.repvit_model}"
+            )
+
+        return self
 
 
 class TransformerConfig(BaseModel):
@@ -52,9 +63,21 @@ class TransformerConfig(BaseModel):
 class TrainConfig(BaseModel):
     learning_rate: float = Field(default=0.001)
     epochs: int = Field(default=1)
-    train_size: float = Field(default=0.5)
-    val_size: float = Field(default=0.3)
     log_dir: str
+    early_stop_counter: int = Field(default=10)
+    train_size: float = Field(default=0.6)
+    val_size: float = Field(default=0.3)
+    test_size: float = Field(default=0.1)
+    seed: int = Field(default=42)
+
+    @model_validator(mode="after")
+    def check_values(self):
+        total = self.train_size + self.val_size + self.test_size
+        if total != 1.0:
+            raise ValueError(
+                f"train_size, val_size, and test_size must sum up to 1.0, but got {total}"
+            )
+        return self
 
 
 class Config(BaseModel):
@@ -65,8 +88,17 @@ class Config(BaseModel):
 
 
 class Trainer:
-    def __init__(self, config: Config, seed: torch.Generator):
+    def __init__(self, config: Config):
         self.config = config
+        self.depth_anything = transformers.pipeline(
+            task="depth-estimation",
+            model=f"depth-anything/Depth-Anything-V2-{config.dataset.depth_anything_size}-hf",
+            device=DEVICE,
+        )
+        self.repvit = RepVit(config.dataloader.repvit_model).to(DEVICE)
+        self.positional_encoder = PositionalEncoding(
+            self.config.transformer.d_model
+        ).to(DEVICE)
         self.model = TransformerFakeDetector(
             d_model=self.config.transformer.d_model,
             n_heads=self.config.transformer.n_heads,
@@ -74,48 +106,46 @@ class Trainer:
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
         ).to(DEVICE)
+        self.generator = torch.Generator().manual_seed(self.config.train.seed)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
-            self.initialize_dataloader(seed)
+            self.initialize_dataloader()
         )
         self.optimizer = optim.Adam(
             self.model.parameters(), lr=config.train.learning_rate
         )
-        self.criterion = nn.BCEWithLogitsLoss()
-        self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
+        self.writer = tensorboard.SummaryWriter(log_dir=self.config.train.log_dir)
 
-    def initialize_dataloader(self, seed: torch.Generator):
+    def initialize_dataloader(self):
         dataset = VideoDataset(
             video_dir=self.config.dataset.video_path,
-            depth_anything_size=self.config.dataset.depth_anything_size,
+            depth_anything=self.depth_anything,
             num_frame=self.config.dataset.num_frames,
-            num_video=10,
+            num_video=self.config.dataset.num_video,
         )
         train_size = int(self.config.train.train_size * len(dataset))
         val_size = int(self.config.train.val_size * len(dataset))
         test_size = len(dataset) - train_size - val_size
-        train_dataset, val_dataset, test_dataset = random_split(
-            dataset, [train_size, val_size, test_size], generator=seed
+        train_dataset, val_dataset, test_dataset = data.random_split(
+            dataset, [train_size, val_size, test_size], generator=self.generator
         )
-        repvit = RepVit().to(DEVICE)
-        positional_encoder = PositionalEncoding(384).to(DEVICE)
         train_dataloader = VideoDataLoader(
             train_dataset,
-            repvit,
-            positional_encoder,
+            self.repvit,
+            self.positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         val_dataloader = VideoDataLoader(
             val_dataset,
-            repvit,
-            positional_encoder,
+            self.repvit,
+            self.positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
         test_dataloader = VideoDataLoader(
             test_dataset,
-            repvit,
-            positional_encoder,
+            self.repvit,
+            self.positional_encoder,
             batch_size=self.config.dataloader.batch_size,
             shuffle=True,
         )
@@ -129,11 +159,7 @@ class Trainer:
             self.train_dataloader,
             total=len(self.train_dataloader),
         ):
-
-            rgb_frames, depth_frames, labels = batch
-            rgb_frames = rgb_frames.to(DEVICE)
-            depth_frames = depth_frames.to(DEVICE)
-            labels = labels.to(DEVICE)
+            rgb_frames, depth_frames, labels = self.load_data(batch)
             _, loss = self.model(rgb_frames, depth_frames, labels)
             train_loss += loss.item()
             self.optimizer.zero_grad()
@@ -150,10 +176,7 @@ class Trainer:
         validation_loss = 0
         with torch.inference_mode():
             for batch in self.val_dataloader:
-                rgb_frames, depth_frames, labels = batch
-                rgb_frames = rgb_frames.to(DEVICE)
-                depth_frames = depth_frames.to(DEVICE)
-                labels = labels.to(DEVICE)
+                rgb_frames, depth_frames, labels = self.load_data(batch)
                 _, loss = self.model(rgb_frames, depth_frames, labels)
                 validation_loss += loss.item()
                 rgb_frames = rgb_frames.detach().cpu()
@@ -165,7 +188,6 @@ class Trainer:
 
     def train(self):
         self.model.train()
-
         for epoch in tqdm(
             range(self.config.train.epochs),
             total=self.config.train.epochs,
@@ -199,19 +221,35 @@ class Trainer:
         # Save final model
         save_model(self.model, self.config.train.log_dir)
 
+    def load_data(self, batch):
+        labels = []
+        depth_frames = []
+        rgb_frames = []
+        for video in batch:
+            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
+            video.depth_frames = self.positional_encoder(video.depth_frames)
+            depth_frames.append(video.depth_frames)
+
+            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
+            video.rgb_frames = self.positional_encoder(video.rgb_frames)
+            rgb_frames.append(video.rgb_frames)
+            labels.append(int(video.original))
+        depth_frames = torch.stack(depth_frames)
+        rgb_frames = torch.stack(rgb_frames)
+        labels = torch.tensor(labels).to(DEVICE)
+        return rgb_frames, depth_frames, labels
+
 
 if __name__ == "__main__":
     experiments = [
         {
             "dataset": {
-                "video_path": r"G:\My Drive\Megatron_DeepFake\dataset",
+                "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
                 "num_frames": 10,
                 "random_initial_frame": False,
                 "depth_anything_size": "Small",
-                "num_video": 20,
-                "train_size": 0.5,
-                "val_size": 0.3,
-                "test_size": 0.2,
+                "num_video": 10,
+                "frame_threshold": 10,
             },
             "dataloader": {
                 "batch_size": 1,
@@ -228,10 +266,13 @@ if __name__ == "__main__":
                 "epochs": 1,
                 "log_dir": "data/runs/exp1",
                 "early_stop_counter": 10,
+                "train_size": 0.5,
+                "val_size": 0.3,
+                "test_size": 0.2,
+                "seed": 42,
             },
         }
     ]
-    seed = torch.Generator().manual_seed(42)
     for experiment in experiments:
-        trainer = Trainer(Config(**experiment), seed)
+        trainer = Trainer(Config(**experiment))
         trainer.train()

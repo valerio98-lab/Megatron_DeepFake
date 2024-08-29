@@ -4,18 +4,15 @@ dataloader"""
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Iterator, Literal, Union
+from typing import Iterator, Union
 
 import cv2
 import dlib
 import numpy as np
 import torch
 import torch.nn.functional as F
-import transformers
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-
-from megatron import DEVICE
 
 
 @dataclass
@@ -46,7 +43,7 @@ class VideoDataset(Dataset):
     def __init__(
         self,
         video_dir: os.PathLike,
-        depth_anything_size: Literal["Small", "Base", "Large"] = "Small",
+        depth_anything,
         num_video: int | None = None,
         threshold: int = 1,
         num_frame: int = 1,
@@ -65,11 +62,7 @@ class VideoDataset(Dataset):
         self.video_paths = []
         self.video_paths = self.__collate_video()
         self.face_detector = dlib.get_frontal_face_detector()
-        self.pipeline = transformers.pipeline(
-            task="depth-estimation",
-            model=f"depth-anything/Depth-Anything-V2-{depth_anything_size}-hf",
-            device=DEVICE,
-        )
+        self.depth_anything = depth_anything
 
     def __len__(self) -> int:
         return len(self.video_paths)
@@ -232,7 +225,7 @@ class VideoDataset(Dataset):
         pil_faces = [Image.fromarray(face) for face in faces]
 
         # Run the depth estimation pipeline on all faces at once
-        results = self.pipeline(pil_faces)
+        results = self.depth_anything(pil_faces)
 
         # Extract depth masks and convert them back to NumPy arrays
         depth_masks = [
@@ -282,24 +275,8 @@ class VideoDataLoader(DataLoader):
         )
 
     def __collate_fn(self, batch: list[Video]):
-        labels = []
-        depth_frames = []
-        rgb_frames = []
         batch = list(filter(None, batch))
-        for video in batch:
-
-            video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
-            video.depth_frames = self.positional_encoder(video.depth_frames)
-            depth_frames.append(video.depth_frames)
-
-            video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
-            video.rgb_frames = self.positional_encoder(video.rgb_frames)
-            rgb_frames.append(video.rgb_frames)
-            labels.append(int(video.original))
-        depth_frames = torch.stack(depth_frames)
-        rgb_frames = torch.stack(rgb_frames)
-        labels = torch.tensor(labels)
-        return rgb_frames, depth_frames, labels
+        return batch
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -314,14 +291,19 @@ class VideoDataLoader(DataLoader):
 
 #     VIDEO_PATH = r"H:\My Drive\Megatron_DeepFake\dataset"
 #     DEPTH_ANYTHING_SIZE = "Small"
-#     NUM_FRAMES = 5
-#     BATCH_SIZE = 2
+#     depth_anything = transformers.pipeline(
+#         task="depth-estimation",
+#         model=f"depth-anything/Depth-Anything-V2-{DEPTH_ANYTHING_SIZE}-hf",
+#         device=DEVICE,
+#     )
+#     NUM_FRAMES = 50
+#     BATCH_SIZE = 1
 #     SHUFFLE = True
 #     dataset = VideoDataset(
 #         VIDEO_PATH,
-#         DEPTH_ANYTHING_SIZE,
+#         depth_anything,
 #         num_frame=NUM_FRAMES,
-#         num_video=BATCH_SIZE * 2,
+#         num_video=BATCH_SIZE,
 #     )
 
 #     dataloader = VideoDataLoader(

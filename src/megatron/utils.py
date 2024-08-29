@@ -1,5 +1,6 @@
 """Utilities functions"""
 
+# TODO: Jose, controlla che le utiliti function lavorino come ci aspettiamo
 import os
 from pathlib import Path
 from typing import Tuple, Optional

@@ -68,27 +68,34 @@ class VideoDataset(Dataset):
         return len(self.video_paths)
 
     def __collate_video(self) -> list[str]:
-        cnt_original = 0
-        video_paths = []
+        original_video_paths = []
+        manipulated_video_paths = []
+
         if str(self.data_path).endswith(".mp4"):
             return [str(self.data_path)]
+
+        # TODO: Jose,Valerio, trovare un modo piu intelligente
+        # per la randomizzazione del dataset
         for root, _, files in os.walk(self.data_path):
             for file in files:
                 if file.endswith(".mp4"):
-                    cnt_original += 1 if "original" in file else 0
                     video_path = os.path.join(root, file)
-                    video_paths.append(video_path)
-        cnt_manipulated = len(video_paths) - cnt_original + 1
-        cnt_original /= len(video_paths)
 
-        cnt_manipulated /= len(video_paths)
-        # distribution = torch.distributions.Categorical(torch.tensor([cnt_original, cnt_manipulated]))
-        if self.num_video is not None and self.num_video <= len(video_paths):
+                    if "original" in video_path:
+                        original_video_paths.append(video_path)
+                    elif "manipulated" in video_path:
+                        manipulated_video_paths.append(video_path)
+        video_paths = original_video_paths + manipulated_video_paths
+        np.random.shuffle(video_paths)
+
+        if self.num_video is not None and self.num_video <= (
+            len(original_video_paths) + len(manipulated_video_paths)
+        ):
             indxs = torch.randperm(self.num_video)
-            return np.array(video_paths)[
-                indxs
-            ].tolist()  # video_paths[: self.num_video]
-        indxs = torch.randperm(len(video_paths))
+
+        else:
+            indxs = indxs = torch.randperm(video_paths)
+
         return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
@@ -297,43 +304,3 @@ class VideoDataLoader(DataLoader):
     # The only purpose for this is for helping pylint with type annotations.
     def __iter__(self) -> Iterator[list[Video]]:
         return super().__iter__()
-
-
-if __name__ == "__main__":
-    from megatron.trainer import Config, Trainer
-
-    experiment = {
-        "dataset": {
-            "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-            "num_frames": 5,
-            "random_initial_frame": True,
-            "depth_anything_size": "Small",
-            "num_video": 40,
-            "frame_threshold": 10,
-        },
-        "dataloader": {
-            "batch_size": 4,
-            "repvit_model": "repvit_m0_9.dist_300e_in1k",
-        },
-        "transformer": {
-            "d_model": 384,
-            "n_heads": 2,
-            "n_layers": 1,
-            "d_ff": 1024,
-        },
-        "train": {
-            "learning_rate": 0.001,
-            "epochs": 2,
-            "log_dir": "../data/runs/exp1",
-            "early_stop_counter": 10,
-            "train_size": 0.5,
-            "val_size": 0.3,
-            "test_size": 0.2,
-        },
-        "seed": 42,
-    }
-
-    config = Config(**experiment)
-    torch.manual_seed(config.seed)
-    trainer = Trainer(config)
-    trainer.train()

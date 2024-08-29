@@ -3,5 +3,6 @@
 scripts/get_dataset.py
 *.mp4
 **/__pycache__/
-data/
+# data/
 poetry.lock
+*.pth

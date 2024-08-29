@@ -4,6 +4,8 @@ from typing import Literal
 import timm
 
 
+# TODO:Jose,Valerio fare in modo che il max_len = num di frames se ho capito bene e
+#  in modo che utilizziamo la memoria nel modo piu efficiente possibile
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=50):
         super().__init__()

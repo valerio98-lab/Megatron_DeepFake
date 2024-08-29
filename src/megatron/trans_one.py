@@ -5,29 +5,8 @@ from torch import nn
 import torch.nn.functional as F
 
 
+# TODO: Valerio, controlla che tutto sia ok e vedere se l'instanziazione dei parametri con la xavier ti convince
 class CrossAttention(nn.Module):
-    """
-    CrossAttention module that performs cross-attention between image and depth embeddings.
-    Args:
-        d_image (int): The dimension of the image embeddings.
-        d_depth (int): The dimension of the depth embeddings.
-        d_attn (int): The dimension of the attention.
-    Attributes:
-        d_image (int): The dimension of the image embeddings.
-        d_depth (int): The dimension of the depth embeddings.
-        d_attn (int): The dimension of the attention.
-        W_Q_image (nn.Linear): Linear layer for image query projection.
-        W_K_depth (nn.Linear): Linear layer for depth key projection.
-        W_V_depth (nn.Linear): Linear layer for depth value projection.
-        W_Q_depth (nn.Linear): Linear layer for depth query projection.
-        W_K_image (nn.Linear): Linear layer for image key projection.
-        W_V_image (nn.Linear): Linear layer for image value projection.
-        W_final (nn.Linear): Linear layer for final output projection.
-    Methods:
-        forward(image_embeddings, depth_embeddings):
-            Performs forward pass of the cross-attention module.
-    """
-
     def __init__(self, d_image: int, d_depth: int, d_attn: int):
         super().__init__()
         self.d_image = d_image
@@ -44,20 +23,29 @@ class CrossAttention(nn.Module):
 
         self.W_final = nn.Linear(2 * d_attn, d_attn)
 
+        # Initialize weights
+        self.init_weights()
+
+        # Layer normalization for stability before softmax
+        self.norm_image = nn.LayerNorm(d_attn)
+        self.norm_depth = nn.LayerNorm(d_attn)
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
     def forward(
         self, image_embeddings: torch.Tensor, depth_embeddings: torch.Tensor
     ) -> torch.Tensor:
-        """
-        Performs forward pass of the cross-attention module.
-        Args:
-            image_embeddings (torch.Tensor): The image embeddings.
-            depth_embeddings (torch.Tensor): The depth embeddings.
-        Returns:
-            final_output (torch.Tensor): The final output of the cross-attention module.
-        """
         Q_image = self.W_Q_image(image_embeddings)
         K_depth = self.W_K_depth(depth_embeddings)
         V_depth = self.W_V_depth(depth_embeddings)
+
+        Q_image = self.norm_image(Q_image)
+        K_depth = self.norm_depth(K_depth)
 
         attn_scores_image_to_depth = torch.bmm(Q_image, K_depth.transpose(1, 2)) / (
             self.d_attn**0.5
@@ -72,6 +60,10 @@ class CrossAttention(nn.Module):
         Q_depth = self.W_Q_depth(depth_embeddings)
         K_image = self.W_K_image(image_embeddings)
         V_image = self.W_V_image(image_embeddings)
+
+        # Apply normalization before softmax
+        Q_depth = self.norm_depth(Q_depth)
+        K_image = self.norm_image(K_image)
 
         attn_scores_depth_to_image = torch.bmm(Q_depth, K_image.transpose(1, 2)) / (
             self.d_attn**0.5
@@ -93,20 +85,6 @@ class CrossAttention(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-    """
-    TransformerEncoder is a module that applies a stack of TransformerEncoderLayers to the input features.
-    Args:
-        d_model (int): The number of expected features in the input.
-        n_heads (int): The number of attention heads.
-        n_layers (int): The number of TransformerEncoderLayers in the stack.
-        d_ff (int): The dimension of the feedforward network.
-    Attributes:
-        layers (nn.ModuleList) : TODO
-        cros_attn (CrossAttention) : TODO
-    Methods:
-        forward(x): Performs a forward pass of the Transformer Encoder.
-    """
-
     def __init__(
         self,
         d_model,
@@ -119,45 +97,24 @@ class TransformerEncoder(nn.Module):
             [TransformerEncoderLayer(d_model, n_heads, d_ff) for _ in range(n_layers)]
         )
         self.cross_attn = CrossAttention(d_model, d_model, d_model)
+        self.norm_rgb = nn.LayerNorm(d_model)
+        self.norm_depth = nn.LayerNorm(d_model)
 
     def forward(
         self, rgb_features: torch.Tensor, depth_features: torch.Tensor
     ) -> torch.Tensor:
-        """
-        Performs forward pass through the network.
-        Args:
-            rgb_features (torch.Tensor): Input RGB features.
-            depth_features (torch.Tensor): Input depth features.
-        Returns:
-            torch.Tensor: Output of the forward pass.
-        """
         for layer in self.layers:
             rgb_features = layer(rgb_features)
             depth_features = layer(depth_features)
+
+        rgb_features = self.norm_rgb(rgb_features)
+        depth_features = self.norm_depth(depth_features)
 
         output = self.cross_attn(rgb_features, depth_features)
         return output
 
 
 class TransformerEncoderLayer(nn.Module):
-    """
-    A single layer of the Transformer Encoder.
-    Args:
-        d_model (int): The number of expected features in the input.
-        n_heads (int): The number of heads in the multihead attention mechanism.
-        d_ff (int): The dimension of the feedforward network.
-        dropout (float, optional): The dropout probability. Default is 0.1.
-    Attributes:
-        self_attn (nn.MultiheadAttention): The multihead self-attention module.
-        linear1 (nn.Linear): The first linear transformation module.
-        linear2 (nn.Linear): The second linear transformation module.
-        norm1 (nn.LayerNorm): The first layer normalization module.
-        norm2 (nn.LayerNorm): The second layer normalization module.
-        dropout (nn.Dropout): The dropout module.
-    Methods:
-        forward(x): Performs a forward pass of the Transformer Encoder layer.
-    """
-
     def __init__(self, d_model, n_heads, d_ff, dropout=0.1):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
@@ -168,15 +125,6 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Performs the forward pass of the model.
-
-        Args:
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-            torch.Tensor: The output tensor.
-        """
         x_norm1 = self.norm1(x)
         x_attn = self.self_attn(x_norm1, x_norm1, x_norm1)[0]
         x = x + x_attn  # skip connection
@@ -187,53 +135,29 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class FeatureProjector(nn.Module):
-    """
-    A module that projects input features to a different dimension.
-    Args:
-        d_input (int): The input dimension of the features.
-        d_output (int): The output dimension of the projected features.
-    Attributes:
-        projector (nn.Linear): The linear projection layer.
-    Methods:
-        forward(features): Projects the input features to the output dimension.
-    """
-
-    def __init__(self, d_input: int, d_output: int):
+    def __init__(
+        self, d_input: int, d_output: int, add_nonlinearity=False, dropout_rate=0.0
+    ):
         super().__init__()
         self.projector = nn.Linear(d_input, d_output)
+        self.add_nonlinearity = add_nonlinearity
+        self.activation = nn.ReLU() if add_nonlinearity else nn.Identity()
+        self.dropout = nn.Dropout(dropout_rate)
+
+        self.init_weights()
+
+    def init_weights(self):
+        nn.init.xavier_uniform_(self.projector.weight)
+        nn.init.constant_(self.projector.bias, 0)
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """
-        Applies the projection operation on the input features.
-
-        Args:
-            features (torch.Tensor): The input features to be projected.
-
-        Returns:
-            torch.Tensor: The projected features.
-
-        """
-        return self.projector(features)
+        features = self.projector(features)
+        features = self.activation(features)
+        features = self.dropout(features)
+        return features
 
 
 class TransformerFakeDetector(nn.Module):
-    """
-    A class representing a Transformer-based fake detector.
-    Args:
-        d_input_features (int): The number of input features.
-        d_model (int): The dimensionality of the model.
-        n_heads (int): The number of attention heads.
-        n_layers (int): The number of transformer layers.
-        d_ff (int): The dimensionality of the feed-forward layer.
-        num_classes (int): The number of output classes.
-    Attributes:
-        projector (FeatureProjector): The feature projector module.
-        encoder (TransformerEncoder): The transformer encoder module.
-        classifier (nn.Linear): The linear classifier layer.
-    Methods:
-        forward(rgb_features, depth_features): Performs a forward pass through the network.
-    """
-
     def __init__(
         self,
         d_model,
@@ -245,22 +169,18 @@ class TransformerFakeDetector(nn.Module):
         projector_bool=False,
     ):
         super().__init__()
+        self.projector_bool = projector_bool
         if d_input_features is not None:
             self.projector = FeatureProjector(d_input_features, d_model)
         self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector_bool = projector_bool
         self.pool = nn.AdaptiveAvgPool1d(1)
+        # TODO: Valerio un dropout con iperparametro per l'overfitting ?
+        # self.dropout = nn.Dropout(0.1)
 
+    # TODO: Jose/Valerio rimuovere il parametro labels qui e controllare che non si scassi niente
     def forward(self, rgb_batch, depth_batch, labels):
-        """
-        Performs a forward pass through the network.
-        Args:
-            rgb_features (torch.Tensor): The RGB input features.
-            depth_features (torch.Tensor): The depth input features.
-        Returns:
-            torch.Tensor: The softmax probabilities of the output classes.
-        """
 
         if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)
@@ -268,8 +188,7 @@ class TransformerFakeDetector(nn.Module):
 
         output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
-
+        # output = self.dropout(output)
         logits = self.classifier(output)
-        loss = F.cross_entropy(logits, labels)
 
-        return logits, loss
+        return logits

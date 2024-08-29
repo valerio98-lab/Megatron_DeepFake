@@ -4,15 +4,15 @@ from os import PathLike
 from typing import Literal
 
 import torch
+from torch import optim
 from torch.utils import data
 from torch.utils import tensorboard
-import torch.optim as optim
 
 # from torch.utils.data import random_split
 # from torch.utils.tensorboard import SummaryWriter
 import transformers
 from pydantic import BaseModel, Field, model_validator
-from tqdm.auto import tqdm
+from tqdm.autonotebook import tqdm
 
 from megatron import DEVICE
 from megatron.preprocessing import PositionalEncoding, RepVit
@@ -28,6 +28,25 @@ class DatasetConfig(BaseModel):
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
     num_video: int = Field(default=20)
     frame_threshold: int = Field(default=5)
+
+    @model_validator(mode="after")
+    def check_values(self):
+        depth_anything_sizes = ["Small", "Base", "Large"]
+        if self.depth_anything_size not in depth_anything_sizes:
+            raise ValueError(
+                f"depth_anything_size must be a value from {depth_anything_sizes}, but got {self.depth_anything_size}"
+            )
+        return self
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return (
+            f"DatasetConfig(video_path={self.video_path}, num_frames={self.num_frames}, "
+            f"random_initial_frame={self.random_initial_frame}, depth_anything_size={self.depth_anything_size}, "
+            f"num_video={self.num_video}, frame_threshold={self.frame_threshold})"
+        )
 
 
 class DataloaderConfig(BaseModel):
@@ -47,10 +66,15 @@ class DataloaderConfig(BaseModel):
         ]
         if self.repvit_model not in repvit_models:
             raise ValueError(
-                f"repvit_model must a value from {repvit_models}, but got {self.repvit_model}"
+                f"repvit_model must be a value from {repvit_models}, but got {self.repvit_model}"
             )
-
         return self
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"DataloaderConfig(batch_size={self.batch_size}, repvit_model={self.repvit_model})"
 
 
 class TransformerConfig(BaseModel):
@@ -58,6 +82,15 @@ class TransformerConfig(BaseModel):
     n_heads: int = Field(default=2)
     n_layers: int = Field(default=1)
     d_ff: int = Field(default=1024)
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return (
+            f"TransformerConfig(d_model={self.d_model}, n_heads={self.n_heads}, "
+            f"n_layers={self.n_layers}, d_ff={self.d_ff})"
+        )
 
 
 class TrainConfig(BaseModel):
@@ -79,12 +112,31 @@ class TrainConfig(BaseModel):
             )
         return self
 
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return (
+            f"TrainConfig(learning_rate={self.learning_rate}, epochs={self.epochs}, log_dir={self.log_dir}, "
+            f"early_stop_counter={self.early_stop_counter}, train_size={self.train_size}, "
+            f"val_size={self.val_size}, test_size={self.test_size}, seed={self.seed})"
+        )
+
 
 class Config(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     dataloader: DataloaderConfig = Field(default_factory=DataloaderConfig)
     transformer: TransformerConfig = Field(default_factory=TransformerConfig)
     train: TrainConfig
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return (
+            f"Config(\n  dataset={self.dataset},\n  dataloader={self.dataloader},\n  "
+            f"transformer={self.transformer},\n  train={self.train}\n)"
+        )
 
 
 class Trainer:
@@ -114,6 +166,7 @@ class Trainer:
             self.model.parameters(), lr=config.train.learning_rate
         )
         self.writer = tensorboard.SummaryWriter(log_dir=self.config.train.log_dir)
+        self.writer.add_text("Experiment info", (str(self.config)))
 
     def initialize_dataloader(self):
         dataset = VideoDataset(
@@ -175,7 +228,10 @@ class Trainer:
         self.model.eval()
         validation_loss = 0
         with torch.inference_mode():
-            for batch in self.val_dataloader:
+            for batch in tqdm(
+                self.val_dataloader,
+                total=len(self.val_dataloader),
+            ):
                 rgb_frames, depth_frames, labels = self.load_data(batch)
                 _, loss = self.model(rgb_frames, depth_frames, labels)
                 validation_loss += loss.item()
@@ -195,8 +251,11 @@ class Trainer:
         ):
             # Training and validation steps
             train_loss = self._train_step()
+
             print("EXIT TRAIN...")
             validation_loss = self._validation_step()
+
+            print("EXIT VALIDATION...")
 
             # Save checkpoint
             print("SAVING CHECKPOINT...")
@@ -234,45 +293,47 @@ class Trainer:
             video.rgb_frames = self.positional_encoder(video.rgb_frames)
             rgb_frames.append(video.rgb_frames)
             labels.append(int(video.original))
+
         depth_frames = torch.stack(depth_frames)
         rgb_frames = torch.stack(rgb_frames)
         labels = torch.tensor(labels).to(DEVICE)
+        print(f"{depth_frames.shape=},{rgb_frames.shape=},{labels.shape=}")
         return rgb_frames, depth_frames, labels
 
 
-if __name__ == "__main__":
-    experiments = [
-        {
-            "dataset": {
-                "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-                "num_frames": 10,
-                "random_initial_frame": False,
-                "depth_anything_size": "Small",
-                "num_video": 10,
-                "frame_threshold": 10,
-            },
-            "dataloader": {
-                "batch_size": 1,
-                "repvit_model": "repvit_m0_9.dist_300e_in1k",
-            },
-            "transformer": {
-                "d_model": 384,
-                "n_heads": 2,
-                "n_layers": 1,
-                "d_ff": 1024,
-            },
-            "train": {
-                "learning_rate": 0.001,
-                "epochs": 1,
-                "log_dir": "data/runs/exp1",
-                "early_stop_counter": 10,
-                "train_size": 0.5,
-                "val_size": 0.3,
-                "test_size": 0.2,
-                "seed": 42,
-            },
-        }
-    ]
-    for experiment in experiments:
-        trainer = Trainer(Config(**experiment))
-        trainer.train()
+# if __name__ == "__main__":
+#     experiments = [
+#         {
+#             "dataset": {
+#                 "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
+#                 "num_frames": 10,
+#                 "random_initial_frame": False,
+#                 "depth_anything_size": "Small",
+#                 "num_video": 10,
+#                 "frame_threshold": 10,
+#             },
+#             "dataloader": {
+#                 "batch_size": 1,
+#                 "repvit_model": "repvit_m0_9.dist_300e_in1k",
+#             },
+#             "transformer": {
+#                 "d_model": 384,
+#                 "n_heads": 2,
+#                 "n_layers": 1,
+#                 "d_ff": 1024,
+#             },
+#             "train": {
+#                 "learning_rate": 0.001,
+#                 "epochs": 1,
+#                 "log_dir": "data/runs/exp1",
+#                 "early_stop_counter": 10,
+#                 "train_size": 0.5,
+#                 "val_size": 0.3,
+#                 "test_size": 0.2,
+#                 "seed": 42,
+#             },
+#         }
+#     ]
+#     for experiment in experiments:
+#         trainer = Trainer(Config(**experiment))
+#         trainer.train()

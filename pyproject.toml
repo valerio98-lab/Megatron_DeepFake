@@ -21,6 +21,8 @@ matplotlib = "^3.9.2"
 # torhc-cu = pip install torch==2.4.0+cu124 --index-url https://download.pytorch.org/whl/cu124
 # https://download.pytorch.org/whl/torch/
 torch = { url = "https://download.pytorch.org/whl/cu124/torch-2.4.0%2Bcu124-cp310-cp310-win_amd64.whl" }
+iprogress = "^0.4"
+ipywidgets = "^8.1.5"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -28,6 +30,7 @@ tqdm = "^4.66.5"
 pylint = "^3.2.6"
 black = "^24.8.0"
 pytest = "^8.3.2"
+ipykernel = "^6.29.5"
 
 [build-system]
 requires = ["poetry-core"]

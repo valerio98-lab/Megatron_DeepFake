@@ -53,7 +53,6 @@ class RepVit(nn.Module):
             torch.Tensor: The RepVit-embedding tensor for the input image.
         """
         img = img.float() / 255.0
-        # img = img.permute(0, 3, 1, 2)
         return self.repvit.forward_head(
             self.repvit.forward_features(img), pre_logits=True
         )

@@ -272,7 +272,4 @@ class TransformerFakeDetector(nn.Module):
         logits = self.classifier(output)
         loss = F.cross_entropy(logits, labels)
 
-        rgb_batch = rgb_batch.detach().cpu()
-        depth_batch = depth_batch.detach().cpu()
-
         return logits, loss

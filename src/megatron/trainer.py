@@ -4,6 +4,7 @@ from os import PathLike
 from typing import Literal
 
 import torch
+from torch import nn
 from torch import optim
 from torch.utils import data
 from torch.utils import tensorboard
@@ -162,6 +163,7 @@ class Trainer:
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
+        self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(
             self.model.parameters(), lr=config.train.learning_rate
         )
@@ -214,8 +216,11 @@ class Trainer:
             desc="TRAINING",
         ):
             rgb_frames, depth_frames, labels = self.load_data(batch)
-            _, loss = self.model(rgb_frames, depth_frames, labels)
+            logits, _ = self.model(rgb_frames, depth_frames, labels)
+            print(f"{logits.shape=}")
+            loss = self.criterion(logits, labels)
             train_loss += loss.item()
+            print(f"Nel train, bce,  {loss.item()=}")
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -234,9 +239,13 @@ class Trainer:
                 total=len(self.val_dataloader) / self.val_dataloader.batch_size,
                 desc="VALIDATING",
             ):
+
                 rgb_frames, depth_frames, labels = self.load_data(batch)
-                _, loss = self.model(rgb_frames, depth_frames, labels)
+                logits, _ = self.model(rgb_frames, depth_frames, labels)
+                loss = self.criterion(logits, labels)
+                print(f"Nella validation {validation_loss=}")
                 validation_loss += loss.item()
+                print(f"Nella validation  {loss.item()=}")
                 rgb_frames = rgb_frames.detach().cpu()
                 depth_frames = depth_frames.detach().cpu()
                 labels = labels.detach().cpu()
@@ -299,7 +308,7 @@ class Trainer:
         depth_frames = torch.stack(depth_frames)
         rgb_frames = torch.stack(rgb_frames)
         labels = torch.tensor(labels).to(DEVICE)
-        print(f"{depth_frames.shape=},{rgb_frames.shape=},{labels.shape=}")
+        # print(f"{depth_frames.shape=},{rgb_frames.shape=},{labels.shape=}")
         return rgb_frames, depth_frames, labels
 
 

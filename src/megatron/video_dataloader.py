@@ -67,18 +67,27 @@ class VideoDataset(Dataset):
     def __len__(self) -> int:
         return len(self.video_paths)
 
-    def __collate_video(self) -> list[(str, bool)]:
-        cnt = 0
+    def __collate_video(self) -> list[str]:
+        cnt_original = 0
         video_paths = []
         for root, _, files in os.walk(self.data_path):
             for file in files:
-                if self.num_video is not None and cnt >= self.num_video:
-                    return video_paths
                 if file.endswith(".mp4"):
-                    cnt += 1
+                    cnt_original += 1 if "original" in file else 0
                     video_path = os.path.join(root, file)
                     video_paths.append(video_path)
-        return video_paths
+        cnt_manipulated = len(video_paths) - cnt_original + 1
+        cnt_original /= len(video_paths)
+
+        cnt_manipulated /= len(video_paths)
+        # distribution = torch.distributions.Categorical(torch.tensor([cnt_original, cnt_manipulated]))
+        if self.num_video is not None and len(video_paths) <= self.num_video:
+            indxs = torch.randperm(self.num_video)
+            return np.array(video_paths)[
+                indxs
+            ].tolist()  # video_paths[: self.num_video]
+        indxs = torch.randperm(len(video_paths))
+        return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
         video_path = self.video_paths[idx]

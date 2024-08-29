@@ -9,7 +9,8 @@ from torch.utils import data
 from torch.utils import tensorboard
 
 from tqdm.autonotebook import tqdm
-from megatron import DEVICE
+
+# from megatron import DEVICE
 from megatron.configuration import Config
 from megatron.preprocessing import PositionalEncoding, RepVit
 from megatron.trans_one import TransformerFakeDetector
@@ -204,14 +205,14 @@ if __name__ == "__main__":
     experiment = {
         "dataset": {
             "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-            "num_frames": 1,
+            "num_frames": 1000,
             "random_initial_frame": True,
             "depth_anything_size": "Small",
-            "num_video": 200,
+            "num_video": 1,
             "frame_threshold": 10,
         },
         "dataloader": {
-            "batch_size": 4,
+            "batch_size": 1,
             "repvit_model": "repvit_m0_9.dist_300e_in1k",
         },
         "transformer": {
@@ -232,11 +233,16 @@ if __name__ == "__main__":
         "seed": 42,
     }
 
+    DEVICE = "cpu"  # Avoid vram saturation
     config = Config(**experiment)
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     trainer = Trainer(config)
-    trainer.train()
+    # TODO: Make it work
+    for batch in trainer.train_dataloader:
+        rgb_frames, depth_frames, labels = trainer.load_data(batch)
+        print(f"{rgb_frames.shape=},{depth_frames.shape=},{labels=}")
+    # trainer.train()
     # cnt_original = 0
     # cnt_manipulated = 0
     # for video_path in trainer.train_dataloader.dataset.dataset.video_paths:

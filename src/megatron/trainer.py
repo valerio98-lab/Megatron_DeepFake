@@ -210,7 +210,8 @@ class Trainer:
 
         for batch in tqdm(
             self.train_dataloader,
-            total=len(self.train_dataloader),
+            total=(len(self.train_dataloader) / self.train_dataloader.batch_size),
+            desc="TRAINING",
         ):
             rgb_frames, depth_frames, labels = self.load_data(batch)
             _, loss = self.model(rgb_frames, depth_frames, labels)
@@ -230,7 +231,8 @@ class Trainer:
         with torch.inference_mode():
             for batch in tqdm(
                 self.val_dataloader,
-                total=len(self.val_dataloader),
+                total=len(self.val_dataloader) / self.val_dataloader.batch_size,
+                desc="VALIDATING",
             ):
                 rgb_frames, depth_frames, labels = self.load_data(batch)
                 _, loss = self.model(rgb_frames, depth_frames, labels)

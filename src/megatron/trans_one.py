@@ -1,7 +1,5 @@
 """Definition of one the main transformer, Transformer One"""
 
-from megatron import DEVICE
-
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -264,16 +262,13 @@ class TransformerFakeDetector(nn.Module):
             torch.Tensor: The softmax probabilities of the output classes.
         """
 
-        rgb_batch = rgb_batch.to(DEVICE)
-        depth_batch = depth_batch.to(DEVICE)
-
         if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)
             depth_batch = self.projector(depth_batch)
 
         output = self.encoder(rgb_batch, depth_batch)
         output = self.pool(output.transpose(1, 2)).squeeze(-1)
-        
+
         logits = self.classifier(output)
         loss = F.cross_entropy(logits, labels)
 

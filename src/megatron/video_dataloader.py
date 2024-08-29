@@ -70,6 +70,8 @@ class VideoDataset(Dataset):
     def __collate_video(self) -> list[(str, bool)]:
         cnt = 0
         video_paths = []
+        if str(self.data_path).endswith(".mp4"):
+            return [str(self.data_path)]
         for root, _, files in os.walk(self.data_path):
             for file in files:
                 if self.num_video is not None and cnt >= self.num_video:
@@ -78,6 +80,7 @@ class VideoDataset(Dataset):
                     cnt += 1
                     video_path = os.path.join(root, file)
                     video_paths.append(video_path)
+        print(f"{video_paths=}")
         return video_paths
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
@@ -107,7 +110,7 @@ class VideoDataset(Dataset):
         )
 
     def get_label(self, video_path: str) -> bool:
-        return "manipulated" in video_path
+        return "original" in video_path
 
     def open_video_capture(self, video_path: str) -> cv2.VideoCapture:
         cap = cv2.VideoCapture(video_path)

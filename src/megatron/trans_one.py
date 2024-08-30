@@ -5,7 +5,6 @@ from torch import nn
 import torch.nn.functional as F
 
 
-# TODO: Valerio, controlla che tutto sia ok e vedere se l'instanziazione dei parametri con la xavier ti convince
 class CrossAttention(nn.Module):
     def __init__(self, d_image: int, d_depth: int, d_attn: int):
         super().__init__()
@@ -178,10 +177,7 @@ class TransformerFakeDetector(nn.Module):
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector_bool = projector_bool
         self.pool = nn.AdaptiveAvgPool1d(1)
-        # TODO: Valerio un dropout con iperparametro per l'overfitting ?
-        # self.dropout = nn.Dropout(0.1)
 
-    # TODO: Jose/Valerio rimuovere il parametro labels qui e controllare che non si scassi niente
     def forward(self, rgb_batch, depth_batch):
 
         if self.projector_bool:

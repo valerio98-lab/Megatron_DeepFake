@@ -76,6 +76,12 @@ class Megatron:
         return "fake" if output == 0 else "original"
 
 
+    def from_checkpoint(self, path: str):
+        checkpoint = torch.load(path)
+        self.model.load_state_dict(checkpoint["model"])
+        self.positional_encoder.load_state_dict(checkpoint["positional_encoder"])
+
+
 if __name__ == "__main__":
     print("Ciao")
     megatron = Megatron(depth_anything_size="Small", n_layers=1)

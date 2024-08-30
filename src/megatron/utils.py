@@ -16,24 +16,20 @@ def save_checkpoint(
 ):
     """
     Save the checkpoint of the model during training.
-
-    Args:
-        model (nn.Module): The model to be saved.
-        epoch (int): The current epoch number.
-        optimizer (torch.optim.Optimizer): The optimizer used for training.
-        best_val_loss (int): The best validation loss achieved so far.
-        early_stop_counter (int): The counter for early stopping.
-        save_path (os.PathLike): The path to save the checkpoint.
-
-    Returns:
-        None
     """
     model_name = str(type(model).__name__)
-    checkpoint_path = Path(save_path) / "models" / str(type(model).__name__)
+    checkpoint_path = Path(save_path) / "models" / model_name
+
+    print(f"Saving checkpoint to: {checkpoint_path}")
 
     if not checkpoint_path.exists():
         os.makedirs(checkpoint_path)
-    checkpoint = checkpoint_path / f"{model_name}_epoch_{epoch+1}.pth"
+        print(f"Created directory: {checkpoint_path}")
+
+    checkpoint = checkpoint_path / f"{model_name}_epoch_{epoch}.pth"
+    
+    print(f"Final checkpoint path: {checkpoint}")
+
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -42,6 +38,7 @@ def save_checkpoint(
         },
         checkpoint,
     )
+    print("Checkpoint saved successfully.")
 
 
 def load_model(model: nn.Module, model_path: os.PathLike):
@@ -70,7 +67,7 @@ def load_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    print(f"Checkpoint loaded: {checkpoint}, starting from epoch: {epoch+1}")
+    print(f"Checkpoint loaded: {checkpoint}, starting from epoch: {epoch}")
     return model, epoch, optimizer
 
 
@@ -108,7 +105,9 @@ def get_latest_epoch(save_path: os.PathLike) -> int:
     """
     checkpoint_path = Path(save_path) / "models"
     checkpoints_epoch = []
+    print(f"Checking directory: {os.path.exists(checkpoint_path)=}")
     for c in checkpoint_path.glob("*.pth"):
+        print(f"Checking file: {c.name}")
         try:
             checkpoints_epoch.append(int(c.stem.split("_")[-1]))
         except ValueError:

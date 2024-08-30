@@ -10,7 +10,7 @@ from torch.utils import tensorboard
 
 from tqdm.autonotebook import tqdm
 
-# from megatron import DEVICE
+from megatron import DEVICE
 from megatron.configuration import Config
 from megatron.preprocessing import PositionalEncoding, RepVit
 from megatron.trans_one import TransformerFakeDetector

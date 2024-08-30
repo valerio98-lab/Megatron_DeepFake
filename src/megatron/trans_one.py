@@ -91,10 +91,11 @@ class TransformerEncoder(nn.Module):
         n_heads,
         n_layers,
         d_ff,
+        dropout=0.1,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
-            [TransformerEncoderLayer(d_model, n_heads, d_ff) for _ in range(n_layers)]
+            [TransformerEncoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
         )
         self.cross_attn = CrossAttention(d_model, d_model, d_model)
         self.norm_rgb = nn.LayerNorm(d_model)
@@ -165,6 +166,7 @@ class TransformerFakeDetector(nn.Module):
         n_layers,
         d_ff,
         num_classes,
+        dropout=0.1,
         d_input_features=None,
         projector_bool=False,
     ):
@@ -172,7 +174,7 @@ class TransformerFakeDetector(nn.Module):
         self.projector_bool = projector_bool
         if d_input_features is not None:
             self.projector = FeatureProjector(d_input_features, d_model)
-        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff)
+        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff, dropout)
         self.classifier = nn.Linear(d_model, num_classes)
         self.projector_bool = projector_bool
         self.pool = nn.AdaptiveAvgPool1d(1)
@@ -180,7 +182,7 @@ class TransformerFakeDetector(nn.Module):
         # self.dropout = nn.Dropout(0.1)
 
     # TODO: Jose/Valerio rimuovere il parametro labels qui e controllare che non si scassi niente
-    def forward(self, rgb_batch, depth_batch, labels):
+    def forward(self, rgb_batch, depth_batch):
 
         if self.projector_bool:
             rgb_batch = self.projector(rgb_batch)

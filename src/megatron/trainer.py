@@ -34,7 +34,8 @@ class Trainer:
         )
         self.repvit = RepVit(config.dataloader.repvit_model).to(DEVICE)
         self.positional_encoder = PositionalEncoding(
-            self.config.transformer.d_model
+            self.config.transformer.d_model,
+            max_len=self.config.dataset.num_frames
         ).to(DEVICE)
         self.model = TransformerFakeDetector(
             d_model=self.config.transformer.d_model,
@@ -42,6 +43,7 @@ class Trainer:
             n_layers=self.config.transformer.n_layers,
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
+            dropout=0.1
         ).to(DEVICE)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
@@ -126,7 +128,7 @@ class Trainer:
             ):
 
                 rgb_frames, depth_frames, labels = self.load_data(batch)
-                logits = self.model(rgb_frames, depth_frames, labels)
+                logits = self.model(rgb_frames, depth_frames)
                 loss = self.criterion(logits, labels)
                 print(f"Nella validation {validation_loss=}")
                 validation_loss += loss.item()

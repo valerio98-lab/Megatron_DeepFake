@@ -37,7 +37,7 @@ class Megatron:
             n_heads=n_heads,
             n_layers=n_layers,
             d_ff=d_ff,
-            num_classes=num_classes,
+            num_classes=num_classes
         ).eval()
         self.depth_anything = transformers.pipeline(
             task="depth-estimation",
@@ -67,9 +67,8 @@ class Megatron:
 
         video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
         video.rgb_frames = self.positional_encoder(video.rgb_frames).unsqueeze(0)
-        label = torch.tensor(int(video.original)).to(DEVICE).unsqueeze(0)
 
-        logits, _ = self.model(video.depth_frames, video.rgb_frames, label)
+        logits = self.model(video.depth_frames, video.rgb_frames)
 
         softmax = F.softmax(logits, dim=1)
         output = np.argmax(softmax[0].detach().numpy())
@@ -80,7 +79,7 @@ class Megatron:
 if __name__ == "__main__":
     print("Ciao")
     megatron = Megatron(depth_anything_size="Small", n_layers=1)
-    path = "/Users/valerio/Desktop/ao/dai/035_036.mp4"
+    path = "/Users/valerio/Desktop/ao/dai"
     output = megatron.inference(video_path=path, num_frame=5)
 
     print(output)

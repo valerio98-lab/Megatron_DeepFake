@@ -9,12 +9,13 @@ from torch.utils import data
 from torch.utils import tensorboard
 
 from tqdm.autonotebook import tqdm
+from pathlib import Path
 
 from megatron import DEVICE
 from megatron.configuration import Config
 from megatron.preprocessing import PositionalEncoding, RepVit
 from megatron.trans_one import TransformerFakeDetector
-from megatron.utils import save_checkpoint, save_model
+from megatron import utils
 from megatron.video_dataloader import VideoDataLoader, VideoDataset
 
 
@@ -25,33 +26,33 @@ from megatron.video_dataloader import VideoDataLoader, VideoDataset
 class Trainer:
     def __init__(self, config: Config):
         self.config = config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.depth_anything = transformers.pipeline(
             task="depth-estimation",
             model=f"depth-anything/Depth-Anything-V2-{config.dataset.depth_anything_size}-hf",
-            # TODO: Jose, Valerio, decommentare quando si rilascia,
-            # in locale questo modello sembra sovraccaricara la VRAM.
-            # device=DEVICE,
+            device=self.device,
         )
-        self.repvit = RepVit(config.dataloader.repvit_model).to(DEVICE)
+        self.repvit = RepVit(config.dataloader.repvit_model).to(self.device)
         self.positional_encoder = PositionalEncoding(
-            self.config.transformer.d_model,
-            max_len=self.config.dataset.num_frames
-        ).to(DEVICE)
+            self.config.transformer.d_model, max_len=self.config.dataset.num_frames
+        ).to(self.device)
         self.model = TransformerFakeDetector(
             d_model=self.config.transformer.d_model,
             n_heads=self.config.transformer.n_heads,
             n_layers=self.config.transformer.n_layers,
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
-            dropout=0.1
-        ).to(DEVICE)
+            dropout=0.1,
+        ).to(self.device)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
+
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(
             self.model.parameters(), lr=config.train.learning_rate
         )
+        self.log_dir = Path(self.config.train.log_dir)
         self.writer = tensorboard.SummaryWriter(log_dir=self.config.train.log_dir)
         self.writer.add_text("Experiment info", (str(self.config)))
 
@@ -64,10 +65,13 @@ class Trainer:
         )
         train_size = int(self.config.train.train_size * len(dataset))
         val_size = int(self.config.train.val_size * len(dataset))
-        test_size = len(dataset) - train_size - val_size
+        test_size = (
+            len(dataset) - train_size - val_size
+        )  # int(self.config.train.test_size * len(dataset))
         train_dataset, val_dataset, test_dataset = data.random_split(
             dataset, [train_size, val_size, test_size]
         )
+
         train_dataloader = VideoDataLoader(
             train_dataset,
             self.repvit,
@@ -100,20 +104,13 @@ class Trainer:
             total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
             desc="TRAINING",
         ):
-            rgb_frames, depth_frames, labels = self.load_data(batch)
-            logits = self.model(rgb_frames, depth_frames, labels)
+            rgb_frames, depth_frames, labels = batch
+            logits = self.model(rgb_frames, depth_frames)
             loss = self.criterion(logits, labels)
-            print(f"Nella train {train_loss=}")
             train_loss += loss.item()
-            print(f"Nella train  {loss.item()=}")
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             self.optimizer.step()
-            rgb_frames = rgb_frames.detach().cpu()
-            depth_frames = depth_frames.detach().cpu()
-            labels = labels.detach().cpu()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
         train_loss /= len(self.train_dataloader)
         return train_loss
 
@@ -127,28 +124,53 @@ class Trainer:
                 desc="VALIDATING",
             ):
 
-                rgb_frames, depth_frames, labels = self.load_data(batch)
+                rgb_frames, depth_frames, labels = batch
                 logits = self.model(rgb_frames, depth_frames)
                 loss = self.criterion(logits, labels)
-                print(f"Nella validation {validation_loss=}")
                 validation_loss += loss.item()
-                print(f"Nella validation  {loss.item()=}")
-                rgb_frames = rgb_frames.detach().cpu()
-                depth_frames = depth_frames.detach().cpu()
-                labels = labels.detach().cpu()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
         validation_loss /= len(self.val_dataloader)
 
         return validation_loss
 
-    def train(self):
-        self.model.train()
+    def _test_step(self):
+        self.model.eval()
+        test_loss = 0
+        with torch.inference_mode():
+            for batch in tqdm(
+                iterable=self.val_dataloader,
+                total=ceil(len(self.test_dataloader) / self.test_dataloader.batch_size),
+                desc="TESTING",
+            ):
+
+                rgb_frames, depth_frames, labels = batch
+                logits = self.model(rgb_frames, depth_frames)
+                loss = self.criterion(logits, labels)
+                test_loss += loss.item()
+        test_loss /= len(self.val_dataloader)
+
+        return test_loss
+
+    def train_and_validate(self):
+        initial_epoch = 0
+        if self.config.train.resume_training:
+
+            checkpoint_path = utils.get_latest_checkpoint(self.log_dir / Path("models"))
+            if checkpoint_path is not None:
+                filename = checkpoint_path.stem
+                initial_epoch = (
+                    int(filename.split("_")[-1])
+                    # Partiamo dalla seguente, se crashi all'epoca 3, l'ultima epoca salvata e' la 2
+                    # idealmente non vuoi ripetere il calcolo dell'epoca 2 ma dall'epoca 3
+                    + 1
+                )
+                utils.load_checkpoint(self.model, self.optimizer, checkpoint_path)
+
         for epoch in tqdm(
-            range(self.config.train.epochs),
+            range(initial_epoch, self.config.train.epochs),
             total=self.config.train.epochs,
             desc="Training and validating",
         ):
+
             # Training and validation steps
             train_loss = self._train_step()
 
@@ -159,9 +181,7 @@ class Trainer:
 
             # Save checkpoint
             print("SAVING CHECKPOINT...")
-            save_checkpoint(
-                self.model, epoch, self.optimizer, self.config.train.log_dir
-            )
+            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
 
             # Log to TensorBoard
             print("SAVING RUN FOR TENSORBOARD...")
@@ -173,32 +193,49 @@ class Trainer:
                 },
                 global_step=epoch,
             )
+            # Save final model
+            if epoch == (self.config.train.epochs - 1):
+                utils.save_model(self.model, self.log_dir)
 
         self.writer.flush()
         self.writer.close()
 
-        # Save final model
-        save_model(self.model, self.config.train.log_dir)
+    def test(self):
+        for epoch in tqdm(
+            range(self.config.train.epochs),
+            total=self.config.train.epochs,
+        ):
+            test_loss = self._test_step()
+            print("SAVING RUN FOR TENSORBOARD...")
+            self.writer.add_scalars(
+                main_tag=f"Loss_{str(type(self.model).__name__)}",
+                tag_scalar_dict={
+                    "test_loss": test_loss,
+                },
+                global_step=epoch,
+            )
+        self.writer.flush()
+        self.writer.close()
 
-    def load_data(self, batch):
-        labels = []
-        depth_frames = []
-        rgb_frames = []
-        with torch.no_grad():
-            for video in batch:
-                video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
-                video.depth_frames = self.positional_encoder(video.depth_frames)
-                depth_frames.append(video.depth_frames)
+    # def load_data(self, batch):
+    #     labels = []
+    #     depth_frames = []
+    #     rgb_frames = []
+    #     with torch.no_grad():
+    #         for video in batch:
+    #             video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
+    #             video.depth_frames = self.positional_encoder(video.depth_frames)
+    #             depth_frames.append(video.depth_frames)
 
-                video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
-                video.rgb_frames = self.positional_encoder(video.rgb_frames)
-                rgb_frames.append(video.rgb_frames)
-                labels.append(int(video.original))
+    #             video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
+    #             video.rgb_frames = self.positional_encoder(video.rgb_frames)
+    #             rgb_frames.append(video.rgb_frames)
+    #             labels.append(int(video.original))
 
-        depth_frames = torch.stack(depth_frames)
-        rgb_frames = torch.stack(rgb_frames)
-        labels = torch.tensor(labels).to(DEVICE)
-        return rgb_frames, depth_frames, labels
+    #     depth_frames = torch.stack(depth_frames)
+    #     rgb_frames = torch.stack(rgb_frames)
+    #     labels = torch.tensor(labels).to(DEVICE)
+    #     return rgb_frames, depth_frames, labels
 
 
 if __name__ == "__main__":
@@ -207,14 +244,14 @@ if __name__ == "__main__":
     experiment = {
         "dataset": {
             "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-            "num_frames": 1000,
+            "num_frames": 1,
             "random_initial_frame": True,
             "depth_anything_size": "Small",
-            "num_video": 1,
+            "num_video": 4,
             "frame_threshold": 10,
         },
         "dataloader": {
-            "batch_size": 1,
+            "batch_size": 4,
             "repvit_model": "repvit_m0_9.dist_300e_in1k",
         },
         "transformer": {
@@ -225,31 +262,18 @@ if __name__ == "__main__":
         },
         "train": {
             "learning_rate": 0.001,
-            "epochs": 2,
-            "log_dir": "/data/runs/exp1",
+            "epochs": 5,
+            "log_dir": "./data/runs/exp1",
             "early_stop_counter": 10,
+            "resume_training": True,
             "train_size": 0.5,
             "val_size": 0.3,
             "test_size": 0.2,
         },
         "seed": 42,
     }
-
-    DEVICE = "cpu"  # Avoid vram saturation
     config = Config(**experiment)
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     trainer = Trainer(config)
-    # TODO: Make it work
-    for batch in trainer.train_dataloader:
-        rgb_frames, depth_frames, labels = trainer.load_data(batch)
-        print(f"{rgb_frames.shape=},{depth_frames.shape=},{labels=}")
-    # trainer.train()
-    # cnt_original = 0
-    # cnt_manipulated = 0
-    # for video_path in trainer.train_dataloader.dataset.dataset.video_paths:
-    #     if "original" in video_path:
-    #         cnt_original += 1
-    #     elif "manipulated" in video_path:
-    #         cnt_manipulated += 1
-    # print(f"{cnt_original=}, {cnt_manipulated=}")
+    trainer.train_and_validate()

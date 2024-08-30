@@ -3,8 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-# TODO: Jose, rimuovere il parametro frame_threshold, puo' causare problemi allo stack
-
 
 class DatasetConfig(BaseModel):
     video_path: PathLike
@@ -12,7 +10,6 @@ class DatasetConfig(BaseModel):
     random_initial_frame: bool = Field(default=False)
     depth_anything_size: Literal["Small", "Base", "Large"] = Field(default="Small")
     num_video: int = Field(default=20)
-    frame_threshold: int = Field(default=5)
 
     @model_validator(mode="after")
     def check_values(self):
@@ -30,7 +27,7 @@ class DatasetConfig(BaseModel):
         return (
             f"DatasetConfig(video_path={self.video_path}, num_frames={self.num_frames}, "
             f"random_initial_frame={self.random_initial_frame}, depth_anything_size={self.depth_anything_size}, "
-            f"num_video={self.num_video}, frame_threshold={self.frame_threshold})"
+            f"num_video={self.num_video})"
         )
 
 
@@ -83,6 +80,7 @@ class TrainConfig(BaseModel):
     epochs: int = Field(default=1)
     log_dir: str
     early_stop_counter: int = Field(default=10)
+    resume_training: bool = Field(default=True)
     train_size: float = Field(default=0.6)
     val_size: float = Field(default=0.3)
     test_size: float = Field(default=0.1)

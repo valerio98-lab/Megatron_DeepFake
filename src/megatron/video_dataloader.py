@@ -92,29 +92,30 @@ class VideoDataset(Dataset):
             len(original_video_paths) + len(manipulated_video_paths)
         ):
             indxs = torch.randperm(self.num_video)
-
         else:
-            indxs = indxs = torch.randperm(video_paths)
-
+            indxs = indxs = torch.randperm(len(video_paths))
         return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
         video_path = self.video_paths[idx]
-        label = self.get_label(video_path)
-        cap = self.open_video_capture(video_path)
-        if not cap:
+        label = "original" in video_path
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
             return None
 
-        total_frame, length = self.get_video_length(cap)
+        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        length = min(total_frame, self.num_frame)
+        if length < self.num_frame:
+            return None
+
         if self.random_initial_frame:
-            self.set_random_start_frame(cap, total_frame, length)
+            random_frame = int(np.random.uniform(0, total_frame - length))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
 
         rgb_frames, face_crops = self.extract_frames_and_faces(cap, length)
         cap.release()
 
-        # if len(rgb_frames) < self.threshold:
         if len(rgb_frames) < self.num_frame:
-
             return None
 
         depth_frames = self.calculate_depth_frames(face_crops)
@@ -126,24 +127,6 @@ class VideoDataset(Dataset):
             original=label,
         )
 
-    def get_label(self, video_path: str) -> bool:
-        return "original" in video_path
-
-    def open_video_capture(self, video_path: str) -> cv2.VideoCapture:
-        cap = cv2.VideoCapture(video_path)
-        return cap if cap.isOpened() else None
-
-    def get_video_length(self, cap: cv2.VideoCapture) -> tuple[int, int]:
-        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        length = min(total_frame, self.num_frame)
-        return total_frame, length
-
-    def set_random_start_frame(
-        self, cap: cv2.VideoCapture, total_frame: int, length: int
-    ) -> None:
-        random_frame = int(np.random.uniform(0, total_frame - length))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
-
     def extract_frames_and_faces(
         self, cap: cv2.VideoCapture, length: int
     ) -> tuple[list[torch.Tensor], list[np.ndarray]]:
@@ -152,30 +135,49 @@ class VideoDataset(Dataset):
             ret, frame = cap.read()
             if not ret:
                 break
-            face_crop = self.process_frame(frame)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            face_crop = self.face_extraction(frame_rgb)
             if face_crop is None:
                 break
             face_crops.append(face_crop)
-            rgb_frames.append(self.convert_to_tensor(face_crop))
+            rgb_frames.append(torch.from_numpy(face_crop).permute(2, 0, 1))
         return rgb_frames, face_crops
 
-    def process_frame(self, frame: np.ndarray) -> Union[np.ndarray, None]:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return self.face_extraction(frame_rgb)
-
-    def convert_to_tensor(self, image: np.ndarray) -> torch.Tensor:
-        return torch.from_numpy(image).permute(2, 0, 1)  # Change to CxHxW
+    def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:
+        faces = self.face_detector(frame)
+        face = None
+        for face_rect in faces:
+            x, y, w, h = (
+                face_rect.left(),
+                face_rect.top(),
+                face_rect.width(),
+                face_rect.height(),
+            )
+            face = frame[y : y + h, x : x + w]
+            break  # We decided to keep only one face in case more where present.
+        return face
 
     def calculate_depth_frames(
         self, face_crops: list[np.ndarray]
     ) -> list[torch.Tensor]:
-        depth_masks = self.calculate_depth_masks(face_crops)
-        return [self.convert_to_tensor(depth_mask) for depth_mask in depth_masks]
+        pil_faces = [Image.fromarray(face) for face in face_crops]
+
+        # Run the depth estimation pipeline on all faces at once
+        results = self.depth_anything(pil_faces)
+
+        # Extract depth masks and convert them back to NumPy arrays
+        depth_masks = [
+            np.stack((np.array(result["depth"]),) * 3, axis=-1) for result in results
+        ]
+        return [
+            torch.from_numpy(depth_mask).permute(2, 0, 1) for depth_mask in depth_masks
+        ]
 
     def pad_frames(
         self, rgb_frames: list[torch.Tensor], depth_frames: list[torch.Tensor]
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-        max_height, max_width = self.get_max_dimensions(rgb_frames)
+        max_height = max(frame.size(1) for frame in rgb_frames)
+        max_width = max(frame.size(2) for frame in rgb_frames)
         rgb_frames_padded = self.pad_to_max_dimensions(
             rgb_frames, max_height, max_width
         )
@@ -183,11 +185,6 @@ class VideoDataset(Dataset):
             depth_frames, max_height, max_width
         )
         return rgb_frames_padded, depth_frames_padded
-
-    def get_max_dimensions(self, frames: list[torch.Tensor]) -> tuple[int, int]:
-        max_height = max(frame.size(1) for frame in frames)
-        max_width = max(frame.size(2) for frame in frames)
-        return max_height, max_width
 
     def pad_to_max_dimensions(
         self, frames: list[torch.Tensor], max_height: int, max_width: int
@@ -206,69 +203,8 @@ class VideoDataset(Dataset):
             for frame in frames
         ]
 
-    def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:
-        """
-        Given a frame, if a face is found it returns the image cropped around the face,
-        or else returns None.
-
-        Args:
-            frame (np.ndarray): The input frame containing the image.
-
-        Returns:
-            (np.ndarray | None): If a face is found, it returns the cropped image around the face.
-                If no face is found, it returns None.
-        """
-        faces = self.face_detector(frame)
-        face = None
-        for face_rect in faces:
-            x, y, w, h = (
-                face_rect.left(),
-                face_rect.top(),
-                face_rect.width(),
-                face_rect.height(),
-            )
-            face = frame[y : y + h, x : x + w]
-            break  # We decided to keep only one face in case more where present.
-        return face
-
-    def calculate_depth_masks(self, faces: list[np.ndarray]) -> list[np.ndarray]:
-        """
-        Calculates the depth masks for a list of face images.
-
-        Args:
-            faces (List[numpy.ndarray]): A list of face images as NumPy arrays.
-
-        Returns:
-            List[numpy.ndarray]: A list of depth masks as NumPy arrays.
-        """
-        # Convert the list of NumPy arrays to a list of PIL images
-        pil_faces = [Image.fromarray(face) for face in faces]
-
-        # Run the depth estimation pipeline on all faces at once
-        results = self.depth_anything(pil_faces)
-
-        # Extract depth masks and convert them back to NumPy arrays
-        depth_masks = [
-            np.stack((np.array(result["depth"]),) * 3, axis=-1) for result in results
-        ]
-
-        return depth_masks
-
 
 class VideoDataLoader(DataLoader):
-    """
-    A custom data loader for loading video datasets.
-
-    Args:
-        dataset (VideoDataset): The video dataset to load.
-        repvit_model (Literal[str]): The name of the RepVit model to use for embedding extraction.
-            Default is "repvit_m0_9.dist_300e_in1k".
-        batch_size (int): The batch size for loading the data. Default is 1.
-        shuffle (bool): Whether to shuffle the data. Default is True.
-        custom_collate_fn (callable): A custom collate function to use for batching the data.
-            If None, the default collate function will be used. Default is None.
-
-    """
 
     def __init__(
         self,
@@ -277,26 +213,44 @@ class VideoDataLoader(DataLoader):
         positional_encoder,
         batch_size=1,
         shuffle=True,
-        custom_collate_fn=None,
     ):
-        self.dataset = dataset
         self.repvit = repvit
         self.positional_encoder = positional_encoder
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.collate_fn = (
-            self.__collate_fn if custom_collate_fn is None else custom_collate_fn
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         super().__init__(
-            dataset=self.dataset,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-            collate_fn=self.collate_fn,
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=self.__collate_fn,
         )
 
     def __collate_fn(self, batch: list[Video]):
-        batch = list(filter(None, batch))
-        return batch
+        labels = []
+        depth_frames = []
+        rgb_frames = []
+        with torch.no_grad():
+            for video in batch:
+                if video is None:
+                    continue
+
+                # Processing depth frames
+                video_depth_frames = video.depth_frames.to(self.device)
+                video_depth_frames = self.repvit(video_depth_frames)
+                video_depth_frames = self.positional_encoder(video_depth_frames)
+                depth_frames.append(video_depth_frames)
+
+                # Processing RGB frames
+                video_rgb_frames = video.rgb_frames.to(self.device)
+                video_rgb_frames = self.repvit(video_rgb_frames)
+                video_rgb_frames = self.positional_encoder(video_rgb_frames)
+                rgb_frames.append(video_rgb_frames)
+
+                labels.append(int(video.original))
+        depth_frames = torch.stack(depth_frames)
+        rgb_frames = torch.stack(rgb_frames)
+        labels = torch.tensor(labels, device=self.device)
+        return rgb_frames, depth_frames, labels
 
     def __len__(self) -> int:
         return len(self.dataset)

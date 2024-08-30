@@ -78,8 +78,7 @@ class VideoDataset(Dataset):
         if str(self.video_dir).endswith(".mp4"):
             return [str(self.video_dir)]
 
-        # TODO: Jose,Valerio, trovare un modo piu intelligente
-        # per la randomizzazione del dataset
+
         for root, _, files in os.walk(self.video_dir):
             for file in files:
                 if file.endswith(".mp4"):

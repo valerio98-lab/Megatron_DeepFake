@@ -21,11 +21,11 @@ class Megatron:
         depth_anything_size: str = "Small",
         repvit_model: str = "repvit_m0_9.dist_300e_in1k",
         d_model: int = 384,
-        max_len_pe=50,
+        num_frames=10,
         n_heads: int = 2,
         n_layers: int = 1,
         d_ff: int = 1024,
-        num_classes: int = 2,
+        num_classes: int = 2
     ):
         """
         Initializes an instance of the Megatron Model.
@@ -41,10 +41,10 @@ class Megatron:
             num_classes (int, optional): The number of output classes. Defaults to 2.
         """
         super().__init__()
-        self.max_len_pe = max_len_pe
+        self.num_frames = num_frames
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.positional_encoding = PositionalEncoding(
-            d_model=d_model, max_len=max_len_pe
+            d_model=d_model, max_len=num_frames
         ).to(self.device)
         self.repvit = RepVit(repvit_model=repvit_model).to(self.device)
         self.model = TransformerFakeDetector(
@@ -81,11 +81,10 @@ class Megatron:
             video_path,
             depth_anything=self.depth_anything,
             num_video=1,
-            num_frame=self.max_len_pe,
+            num_frame=self.num_frames,
             random_initial_frame=random_initial_frame,
         )[0]
         self.repvit.eval()
-        self.positional_encoding.eval()
         self.model.eval()
         if video is None:
             raise FileNotFoundError(f"Video file not found: {video_path}")

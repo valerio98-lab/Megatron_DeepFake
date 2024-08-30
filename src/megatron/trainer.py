@@ -1,30 +1,48 @@
 """Trainer class"""
 
 from math import ceil
-import transformers
+from pathlib import Path
+import transformers  # type: ignore
 import torch
 from torch import nn
 from torch import optim
 from torch.utils import data
-from torch.utils import tensorboard
+from torch.utils.tensorboard.writer import SummaryWriter
 
-from tqdm.autonotebook import tqdm
-from pathlib import Path
+from tqdm.autonotebook import tqdm  # type: ignore
 
-from megatron import DEVICE
-from megatron.configuration import Config
+from megatron.configuration import ExperimentConfig
 from megatron.preprocessing import PositionalEncoding, RepVit
 from megatron.trans_one import TransformerFakeDetector
 from megatron import utils
 from megatron.video_dataloader import VideoDataLoader, VideoDataset
 
 
-# TODO: Jose, crea la funzione di test
-# TODO: Jose, Valerio, fare brainstorming insieme per capire la miglior combinazione di
-# allocazione/deallocazione capire se conviene tenere tutto in ram a scapito di batch piu piccoli con meno frame
-# o fare una gestione smart della memoria
 class Trainer:
-    def __init__(self, config: Config):
+    """
+    Class used for performing experiments
+
+    Attributes:
+        device (torch.device): The device to be used for training.
+        depth_anything (transformers.pipeline): The depth estimation model.
+        repvit (RepVit): The RepVit model.
+        positional_encoding (PositionalEncoding): The positional encoder.
+        model (TransformerFakeDetector): The fake detector model.
+        train_dataloader (VideoDataLoader): The training dataloader.
+        val_dataloader (VideoDataLoader): The validation dataloader.
+        test_dataloader (VideoDataLoader): The testing dataloader.
+        criterion (nn.CrossEntropyLoss): The loss function.
+        optimizer (optim.Adam): The optimizer.
+        log_dir (Path): The directory to save logs.
+        writer (tensorboard.SummaryWriter): The tensorboard writer.
+    """
+
+    def __init__(self, config: ExperimentConfig):
+        """
+        Initializes the Trainer class taking an experiment configuration.
+        Args:
+            config (ExperimentConfig): The experiment configuration.
+        """
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.depth_anything = transformers.pipeline(
@@ -32,8 +50,10 @@ class Trainer:
             model=f"depth-anything/Depth-Anything-V2-{config.dataset.depth_anything_size}-hf",
             device=self.device,
         )
-        self.repvit = RepVit(config.dataloader.repvit_model).to(self.device)
-        self.positional_encoder = PositionalEncoding(
+        self.repvit = RepVit(repvit_model=config.dataloader.repvit_model).to(
+            self.device
+        )
+        self.positional_encoding = PositionalEncoding(
             self.config.transformer.d_model, max_len=self.config.dataset.num_frames
         ).to(self.device)
         self.model = TransformerFakeDetector(
@@ -53,10 +73,15 @@ class Trainer:
             self.model.parameters(), lr=config.train.learning_rate
         )
         self.log_dir = Path(self.config.train.log_dir)
-        self.writer = tensorboard.SummaryWriter(log_dir=self.config.train.log_dir)
+        self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
         self.writer.add_text("Experiment info", (str(self.config)))
 
     def initialize_dataloader(self):
+        """
+        Initializes the training, validation, and testing dataloaders.
+        Returns:
+            tuple: A tuple containing the training, validation, and testing dataloaders.
+        """
         dataset = VideoDataset(
             video_dir=self.config.dataset.video_path,
             depth_anything=self.depth_anything,
@@ -71,33 +96,23 @@ class Trainer:
         train_dataset, val_dataset, test_dataset = data.random_split(
             dataset, [train_size, val_size, test_size]
         )
-
-        train_dataloader = VideoDataLoader(
-            train_dataset,
-            self.repvit,
-            self.positional_encoder,
-            batch_size=self.config.dataloader.batch_size,
-            shuffle=True,
-        )
-        val_dataloader = VideoDataLoader(
-            val_dataset,
-            self.repvit,
-            self.positional_encoder,
-            batch_size=self.config.dataloader.batch_size,
-            shuffle=True,
-        )
-        test_dataloader = VideoDataLoader(
-            test_dataset,
-            self.repvit,
-            self.positional_encoder,
-            batch_size=self.config.dataloader.batch_size,
-            shuffle=True,
-        )
+        dataloader_kwargs = {
+            "repvit": self.repvit,
+            "positional_encoding": self.positional_encoding,
+            "batch_size": self.config.dataloader.batch_size,
+            "shuffle": self.config.dataloader.shuffle,
+            "pin_memory": self.config.dataloader.pin_memory,
+            "num_workers": self.config.dataloader.num_workers,
+        }
+        train_dataloader = VideoDataLoader(train_dataset, **dataloader_kwargs)
+        val_dataloader = VideoDataLoader(val_dataset, **dataloader_kwargs)
+        test_dataloader = VideoDataLoader(test_dataset, **dataloader_kwargs)
         return train_dataloader, val_dataloader, test_dataloader
 
     def _train_step(self) -> float:
+
         self.model.train()
-        train_loss = 0
+        train_loss = 0.0
 
         for batch in tqdm(
             iterable=self.train_dataloader,
@@ -115,8 +130,9 @@ class Trainer:
         return train_loss
 
     def _validation_step(self) -> float:
+
         self.model.eval()
-        validation_loss = 0
+        validation_loss = 0.0
         with torch.inference_mode():
             for batch in tqdm(
                 iterable=self.val_dataloader,
@@ -132,8 +148,48 @@ class Trainer:
 
         return validation_loss
 
+    def train_and_validate(self):
+        """
+        Trains and validates the model.
+        """
+        initial_epoch = 0
+        if self.config.train.resume_training:
+
+            checkpoint_path = utils.get_latest_checkpoint(self.log_dir / "models")
+            if checkpoint_path is not None:
+                filename = checkpoint_path.stem
+                initial_epoch = int(filename.split("_")[-1]) + 1
+                utils.load_checkpoint(self.model, self.optimizer, checkpoint_path)
+        if initial_epoch >= self.config.train.epochs:
+            return
+        for epoch in tqdm(
+            range(initial_epoch, self.config.train.epochs),
+            total=self.config.train.epochs,
+            desc="Training and validating",
+        ):
+
+            # Training and validation steps
+            train_loss = self._train_step()
+            validation_loss = self._validation_step()
+
+            # Save checkpoint
+            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
+
+            self.writer.add_scalars(
+                main_tag=f"Loss/{type(self.model).__name__}",
+                tag_scalar_dict={
+                    "train_loss": train_loss,
+                    "validation_loss": validation_loss,
+                },
+                global_step=epoch,
+            )
+
+        utils.save_model(self.model, self.log_dir)
+        self.writer.flush()
+        self.writer.close()
+
     def _test_step(self):
-        self.model.eval()
+
         test_loss = 0
         with torch.inference_mode():
             for batch in tqdm(
@@ -150,130 +206,17 @@ class Trainer:
 
         return test_loss
 
-    def train_and_validate(self):
-        initial_epoch = 0
-        if self.config.train.resume_training:
-
-            checkpoint_path = utils.get_latest_checkpoint(self.log_dir / Path("models"))
-            if checkpoint_path is not None:
-                filename = checkpoint_path.stem
-                initial_epoch = (
-                    int(filename.split("_")[-1])
-                    # Partiamo dalla seguente, se crashi all'epoca 3, l'ultima epoca salvata e' la 2
-                    # idealmente non vuoi ripetere il calcolo dell'epoca 2 ma dall'epoca 3
-                    + 1
-                )
-                utils.load_checkpoint(self.model, self.optimizer, checkpoint_path)
-
-        for epoch in tqdm(
-            range(initial_epoch, self.config.train.epochs),
-            total=self.config.train.epochs,
-            desc="Training and validating",
-        ):
-
-            # Training and validation steps
-            train_loss = self._train_step()
-
-            print("EXIT TRAIN...")
-            validation_loss = self._validation_step()
-
-            print("EXIT VALIDATION...")
-
-            # Save checkpoint
-            print("SAVING CHECKPOINT...")
-            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
-
-            # Log to TensorBoard
-            print("SAVING RUN FOR TENSORBOARD...")
-            self.writer.add_scalars(
-                main_tag=f"Loss_{str(type(self.model).__name__)}",
-                tag_scalar_dict={
-                    "train_loss": train_loss,
-                    "validation_loss": validation_loss,
-                },
-                global_step=epoch,
-            )
-            # Save final model
-            if epoch == (self.config.train.epochs - 1):
-                utils.save_model(self.model, self.log_dir)
-
-        self.writer.flush()
-        self.writer.close()
-
     def test(self):
-        for epoch in tqdm(
-            range(self.config.train.epochs),
-            total=self.config.train.epochs,
-        ):
-            test_loss = self._test_step()
-            print("SAVING RUN FOR TENSORBOARD...")
-            self.writer.add_scalars(
-                main_tag=f"Loss_{str(type(self.model).__name__)}",
-                tag_scalar_dict={
-                    "test_loss": test_loss,
-                },
-                global_step=epoch,
-            )
+        """
+        Tests the trained model.
+        """
+        utils.load_model(self.model, self.log_dir)
+        self.model.eval()
+        test_loss = self._test_step()
+        self.writer.add_scalars(
+            main_tag=f"Loss/{type(self.model).__name__}",
+            tag_scalar_dict={"test_loss": test_loss},
+            global_step=0,
+        )
         self.writer.flush()
         self.writer.close()
-
-    # def load_data(self, batch):
-    #     labels = []
-    #     depth_frames = []
-    #     rgb_frames = []
-    #     with torch.no_grad():
-    #         for video in batch:
-    #             video.depth_frames = self.repvit(video.depth_frames.to(DEVICE))
-    #             video.depth_frames = self.positional_encoder(video.depth_frames)
-    #             depth_frames.append(video.depth_frames)
-
-    #             video.rgb_frames = self.repvit(video.rgb_frames.to(DEVICE))
-    #             video.rgb_frames = self.positional_encoder(video.rgb_frames)
-    #             rgb_frames.append(video.rgb_frames)
-    #             labels.append(int(video.original))
-
-    #     depth_frames = torch.stack(depth_frames)
-    #     rgb_frames = torch.stack(rgb_frames)
-    #     labels = torch.tensor(labels).to(DEVICE)
-    #     return rgb_frames, depth_frames, labels
-
-
-if __name__ == "__main__":
-    import numpy as np
-
-    experiment = {
-        "dataset": {
-            "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-            "num_frames": 1,
-            "random_initial_frame": True,
-            "depth_anything_size": "Small",
-            "num_video": 4,
-            "frame_threshold": 10,
-        },
-        "dataloader": {
-            "batch_size": 4,
-            "repvit_model": "repvit_m0_9.dist_300e_in1k",
-        },
-        "transformer": {
-            "d_model": 384,
-            "n_heads": 2,
-            "n_layers": 1,
-            "d_ff": 1024,
-        },
-        "train": {
-            "learning_rate": 0.001,
-            "epochs": 5,
-            "log_dir": "./data/runs/exp1",
-            "early_stop_counter": 10,
-            "resume_training": True,
-            "train_size": 0.5,
-            "val_size": 0.3,
-            "test_size": 0.2,
-        },
-        "seed": 42,
-    }
-    config = Config(**experiment)
-    torch.manual_seed(config.seed)
-    np.random.seed(config.seed)
-    trainer = Trainer(config)
-    trainer.train_and_validate()

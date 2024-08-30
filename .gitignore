@@ -5,4 +5,6 @@ scripts/get_dataset.py
 **/__pycache__/
 # data/
 poetry.lock
-*.pth
+
+.mypy_cache/
+.pytest_cache/

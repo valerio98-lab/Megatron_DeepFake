@@ -2,21 +2,33 @@
 dataloader"""
 
 import os
-import pathlib
+from pathlib import Path
 from dataclasses import dataclass
-from typing import Iterator, Union
+from typing import Iterator, Optional, Union
 
 import cv2
-import dlib
+import dlib  # type: ignore
+from transformers import Pipeline  # type: ignore
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
+
+from megatron.preprocessing import RepVit, PositionalEncoding
 
 
 @dataclass
 class Video:
+    """
+    Represents a video with RGB and depth frames.
+
+    Attributes:
+        rgb_frames (torch.Tensor): A tensor containing RGB frames of the video.
+        depth_frames (torch.Tensor): A tensor containing depth frames of the video.
+        original (bool): Indicates whether the video is an original or not.
+    """
+
     rgb_frames: torch.Tensor
     depth_frames: torch.Tensor
     original: bool
@@ -27,13 +39,11 @@ class VideoDataset(Dataset):
     A PyTorch dataset for loading video data.
 
     Args:
-        video_dir (os.PathLike): The directory path where the video files are located.
+        video_dir (Path): The directory path where the video files are located.
         depth_anything_size (Literal["Small", "Base", "Large"], optional): The size of the depth-anything model to use.
             Defaults to "Small".
         num_video (int | None, optional): The maximum number of videos to load.
             If None, all videos in the directory will be loaded. Defaults to None.
-        threshold (int, optional): The minimum number of frames required for a video to be considered valid.
-            Defaults to 5.
         num_frame (int, optional): The number of frames to extract from each video.
             Defaults to 1.
         random_initial_frame (bool, optional): Whether to randomly select the initial frame for extraction.
@@ -42,26 +52,20 @@ class VideoDataset(Dataset):
 
     def __init__(
         self,
-        video_dir: os.PathLike,
-        depth_anything,
+        video_dir: Path,
+        depth_anything: Pipeline,
         num_video: int | None = None,
-        threshold: int = 1,
         num_frame: int = 1,
         random_initial_frame: bool = False,
     ):
         super().__init__()
         self.num_frame = num_frame
-        self.threshold = threshold
-        self.data_path = pathlib.Path(video_dir)
+        self.video_dir = Path(video_dir)
         self.num_video = num_video
         self.random_initial_frame = random_initial_frame
-        assert (
-            self.data_path.exists()
-        ), f'Watch out! "{str(self.data_path)}" was not found.'
-
         self.video_paths = []
         self.video_paths = self.__collate_video()
-        self.face_detector = dlib.get_frontal_face_detector()
+        self.face_detector = dlib.get_frontal_face_detector()  # type: ignore
         self.depth_anything = depth_anything
 
     def __len__(self) -> int:
@@ -71,12 +75,12 @@ class VideoDataset(Dataset):
         original_video_paths = []
         manipulated_video_paths = []
 
-        if str(self.data_path).endswith(".mp4"):
-            return [str(self.data_path)]
+        if str(self.video_dir).endswith(".mp4"):
+            return [str(self.video_dir)]
 
         # TODO: Jose,Valerio, trovare un modo piu intelligente
         # per la randomizzazione del dataset
-        for root, _, files in os.walk(self.data_path):
+        for root, _, files in os.walk(self.video_dir):
             for file in files:
                 if file.endswith(".mp4"):
                     video_path = os.path.join(root, file)
@@ -130,6 +134,17 @@ class VideoDataset(Dataset):
     def extract_frames_and_faces(
         self, cap: cv2.VideoCapture, length: int
     ) -> tuple[list[torch.Tensor], list[np.ndarray]]:
+        """
+        Extracts frames and faces from a video.
+
+        Args:
+            cap (cv2.VideoCapture): The video capture object.
+            length (int): The number consecutive of frames to extract.
+
+        Returns:
+            tuple[list[torch.Tensor], list[np.ndarray]]: A tuple containing a list of RGB
+                frames as torch Tensors and a list of face crops as numpy arrays.
+        """
         rgb_frames, face_crops = [], []
         for _ in range(length):
             ret, frame = cap.read()
@@ -143,7 +158,16 @@ class VideoDataset(Dataset):
             rgb_frames.append(torch.from_numpy(face_crop).permute(2, 0, 1))
         return rgb_frames, face_crops
 
-    def face_extraction(self, frame: np.ndarray) -> np.ndarray | None:
+    def face_extraction(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Extracts the face from the given frame.
+
+        Parameters:
+            frame (np.ndarray): The input frame containing the face.
+
+        Returns:
+            np.ndarray | None: The extracted face as a numpy array, or None if no face is found.
+        """
         faces = self.face_detector(frame)
         face = None
         for face_rect in faces:
@@ -160,6 +184,13 @@ class VideoDataset(Dataset):
     def calculate_depth_frames(
         self, face_crops: list[np.ndarray]
     ) -> list[torch.Tensor]:
+        """
+        Calculate depth frames for a list of face crops.
+        Args:
+            face_crops (list[np.ndarray]): A list of numpy arrays representing face crops.
+        Returns:
+            list[torch.Tensor]: A list of torch Tensors representing the depth frames.
+        """
         pil_faces = [Image.fromarray(face) for face in face_crops]
 
         # Run the depth estimation pipeline on all faces at once
@@ -176,6 +207,17 @@ class VideoDataset(Dataset):
     def pad_frames(
         self, rgb_frames: list[torch.Tensor], depth_frames: list[torch.Tensor]
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        """
+        Pads the given RGB and depth frames to the maximum dimensions.
+
+        Args:
+            rgb_frames (list[torch.Tensor]): A list of RGB frames.
+            depth_frames (list[torch.Tensor]): A list of depth frames.
+
+        Returns:
+            tuple[list[torch.Tensor], list[torch.Tensor]]: A tuple containing the
+                padded RGB frames and padded depth frames.
+        """
         max_height = max(frame.size(1) for frame in rgb_frames)
         max_width = max(frame.size(2) for frame in rgb_frames)
         rgb_frames_padded = self.pad_to_max_dimensions(
@@ -189,6 +231,18 @@ class VideoDataset(Dataset):
     def pad_to_max_dimensions(
         self, frames: list[torch.Tensor], max_height: int, max_width: int
     ) -> list[torch.Tensor]:
+        """
+        Pads the frames in the list to match the maximum height and width.
+
+        Args:
+            frames (list[torch.Tensor]): A list of torch.Tensor representing frames.
+            max_height (int): The maximum height to pad the frames to.
+            max_width (int): The maximum width to pad the frames to.
+
+        Returns:
+            list[torch.Tensor]: A list of torch.Tensor with padded frames.
+
+        """
         return [
             (
                 F.pad(
@@ -205,17 +259,37 @@ class VideoDataset(Dataset):
 
 
 class VideoDataLoader(DataLoader):
+    """
+    A custom data loader for loading video data.
+
+    Attributes:
+        repvit (RepVit): The RepVit model for processing video frames.
+        positional_encoding (PositionalEncoding): The positional encoder for encoding video frames.
+        device (torch.device): The device (CPU or GPU) to use for processing.
+    """
 
     def __init__(
         self,
-        dataset: VideoDataset,
-        repvit,
-        positional_encoder,
-        batch_size=1,
-        shuffle=True,
+        dataset: Union[VideoDataset, Subset],
+        repvit: RepVit,
+        positional_encoding: PositionalEncoding,
+        batch_size: int = 1,
+        shuffle: bool = True,
+        pin_memory: bool = True,
+        num_workers: int = 4,
     ):
+        """Initializes a VideoDataLoader instance.
+        Args:
+            dataset (VideoDataset): The video dataset to load.
+            repvit (RepVit): The RepVit model for processing video frames.
+            positional_encoding (PositionalEncoding): The positional encoder for encoding video frames.
+            batch_size (int, optional): The batch size for loading data. Defaults to 1.
+            shuffle (bool, optional): Whether to shuffle the data. Defaults to True.
+            pin_memory (bool, optional): Whether to pin memory for faster data transfer. Defaults to True.
+            num_workers (int, optional): The number of worker processes for data loading. Defaults to 4.
+        """
         self.repvit = repvit
-        self.positional_encoder = positional_encoder
+        self.positional_encoding = positional_encoding
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         super().__init__(
@@ -223,9 +297,13 @@ class VideoDataLoader(DataLoader):
             batch_size=batch_size,
             shuffle=shuffle,
             collate_fn=self.__collate_fn,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
         )
 
-    def __collate_fn(self, batch: list[Video]):
+    def __collate_fn(
+        self, batch: list[Video]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         labels = []
         depth_frames = []
         rgb_frames = []
@@ -237,24 +315,21 @@ class VideoDataLoader(DataLoader):
                 # Processing depth frames
                 video_depth_frames = video.depth_frames.to(self.device)
                 video_depth_frames = self.repvit(video_depth_frames)
-                video_depth_frames = self.positional_encoder(video_depth_frames)
+                video_depth_frames = self.positional_encoding(video_depth_frames)
                 depth_frames.append(video_depth_frames)
 
                 # Processing RGB frames
                 video_rgb_frames = video.rgb_frames.to(self.device)
                 video_rgb_frames = self.repvit(video_rgb_frames)
-                video_rgb_frames = self.positional_encoder(video_rgb_frames)
+                video_rgb_frames = self.positional_encoding(video_rgb_frames)
                 rgb_frames.append(video_rgb_frames)
 
                 labels.append(int(video.original))
-        depth_frames = torch.stack(depth_frames)
-        rgb_frames = torch.stack(rgb_frames)
-        labels = torch.tensor(labels, device=self.device)
-        return rgb_frames, depth_frames, labels
-
-    def __len__(self) -> int:
-        return len(self.dataset)
+        depth_frames_tensor = torch.stack(depth_frames)
+        rgb_frames_tensor = torch.stack(rgb_frames)
+        labels_tensor = torch.tensor(labels, device=self.device)
+        return rgb_frames_tensor, depth_frames_tensor, labels_tensor
 
     # The only purpose for this is for helping pylint with type annotations.
-    def __iter__(self) -> Iterator[list[Video]]:
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:  # type: ignore
         return super().__iter__()

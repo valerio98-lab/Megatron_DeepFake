@@ -116,7 +116,7 @@ class Trainer:
 
         for batch in tqdm(
             iterable=self.train_dataloader,
-            total=ceil(len(self.train_dataloader) / self.train_dataloader.batch_size),
+            total=ceil(len(self.train_dataloader)),
             desc="TRAINING",
         ):
             rgb_frames, depth_frames, labels = batch
@@ -136,7 +136,7 @@ class Trainer:
         with torch.inference_mode():
             for batch in tqdm(
                 iterable=self.val_dataloader,
-                total=ceil(len(self.val_dataloader) / self.val_dataloader.batch_size),
+                total=ceil(len(self.val_dataloader)),
                 desc="VALIDATING",
             ):
 
@@ -194,7 +194,7 @@ class Trainer:
         with torch.inference_mode():
             for batch in tqdm(
                 iterable=self.val_dataloader,
-                total=ceil(len(self.test_dataloader) / self.test_dataloader.batch_size),
+                total=ceil(len(self.test_dataloader)),
                 desc="TESTING",
             ):
 

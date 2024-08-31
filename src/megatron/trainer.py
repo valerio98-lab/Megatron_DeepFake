@@ -9,7 +9,7 @@ from torch import optim
 from torch.utils import data
 from torch.utils.tensorboard.writer import SummaryWriter
 
-from tqdm.autonotebook import tqdm  # type: ignore
+from tqdm.auto import tqdm  # type: ignore
 
 from megatron.configuration import ExperimentConfig
 from megatron.preprocessing import PositionalEncoding, RepVit

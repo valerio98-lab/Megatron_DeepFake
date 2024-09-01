@@ -78,7 +78,6 @@ class VideoDataset(Dataset):
         if str(self.video_dir).endswith(".mp4"):
             return [str(self.video_dir)]
 
-
         for root, _, files in os.walk(self.video_dir):
             for file in files:
                 if file.endswith(".mp4"):
@@ -332,3 +331,14 @@ class VideoDataLoader(DataLoader):
     # The only purpose for this is for helping pylint with type annotations.
     def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:  # type: ignore
         return super().__iter__()
+
+
+# VideoDataset(
+#         video_dir=Path(
+#             r"G:\\My Drive\\Megatron_DeepFake\\dataset\\original_sequences\\youtube\\raw\\videos\\456.mp4"
+#         ),
+#         depth_anything=None,
+#         num_frame=30,
+#         num_video=100,
+#         random_initial_frame=False,
+#     )[0]

@@ -7,7 +7,7 @@ extension-pkg-whitelist=cv2,dlib
 good-names=i,j,k,_,W_Q_image,W_K_image,W_V_image,W_K_depth,W_V_depth,W_Q_depth,Q_image,K_image,V_image,K_depth,V_depth,Q_depth,W_final,
 
 [TYPECHECK]
-generated-members=cv2.*,dlib.*
+generated-members=cv2.*,dlib.*, torch.*
 
 [FORMAT]
 max-line-length=120

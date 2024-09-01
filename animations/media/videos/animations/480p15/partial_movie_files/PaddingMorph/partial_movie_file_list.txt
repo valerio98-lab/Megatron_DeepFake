@@ -1,0 +1,4 @@
+# This file is used internally by FFMPEG.
+file 'file:C:/Users/josed/Documents/Megatron_DeepFake/animations/media/videos/animations/480p15/partial_movie_files/PaddingMorph/931832650_4205520711_3335878453.mp4'
+file 'file:C:/Users/josed/Documents/Megatron_DeepFake/animations/media/videos/animations/480p15/partial_movie_files/PaddingMorph/1905288516_2345168848_4278126678.mp4'
+file 'file:C:/Users/josed/Documents/Megatron_DeepFake/animations/media/videos/animations/480p15/partial_movie_files/PaddingMorph/1905288516_3438219438_4258335701.mp4'

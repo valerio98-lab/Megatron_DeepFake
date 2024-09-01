@@ -1,0 +1,3 @@
+# This file is used internally by FFMPEG.
+file 'file:C:/Users/josed/Documents/Megatron_DeepFake/animations/media/videos/animations/480p15/partial_movie_files/DynamicFrameAnimation/2550307886_4205520711_1379180436.mp4'
+file 'file:C:/Users/josed/Documents/Megatron_DeepFake/animations/media/videos/animations/480p15/partial_movie_files/DynamicFrameAnimation/2732211768_1633768449_3631127911.mp4'

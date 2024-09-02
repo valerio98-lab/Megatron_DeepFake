@@ -99,35 +99,38 @@ class VideoDataset(Dataset):
         return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
-        video_path = self.video_paths[idx]
-        label = "original" in video_path
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            return None
+        try:
+            video_path = self.video_paths[idx]
+            label = "original" in video_path
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return None
 
-        total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        length = min(total_frame, self.num_frame)
-        if length < self.num_frame:
-            return None
+            total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            length = min(total_frame, self.num_frame)
+            if length < self.num_frame:
+                return None
 
-        if self.random_initial_frame:
-            random_frame = int(np.random.uniform(0, total_frame - length))
-            cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
+            if self.random_initial_frame:
+                random_frame = int(np.random.uniform(0, total_frame - length))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
 
-        rgb_frames, face_crops = self.extract_frames_and_faces(cap, length)
-        cap.release()
+            rgb_frames, face_crops = self.extract_frames_and_faces(cap, length)
+            cap.release()
 
-        if len(rgb_frames) < self.num_frame:
-            return None
+            if len(rgb_frames) < self.num_frame:
+                return None
 
-        depth_frames = self.calculate_depth_frames(face_crops)
-        rgb_frames, depth_frames = self.pad_frames(rgb_frames, depth_frames)
+            depth_frames = self.calculate_depth_frames(face_crops)
+            rgb_frames, depth_frames = self.pad_frames(rgb_frames, depth_frames)
 
-        return Video(
-            rgb_frames=torch.stack(rgb_frames),
-            depth_frames=torch.stack(depth_frames),
-            original=label,
-        )
+            return Video(
+                rgb_frames=torch.stack(rgb_frames),
+                depth_frames=torch.stack(depth_frames),
+                original=label,
+            )
+        except Exception as e:
+            print(f"Error loading video: {video_path}, {e}")
 
     def extract_frames_and_faces(
         self, cap: cv2.VideoCapture, length: int

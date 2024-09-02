@@ -17,6 +17,7 @@ dlib = "^19.24.6"
 numpy = "1.26.0"
 matplotlib = "^3.9.2"
 torch = "2.2.1"
+torchmetrics = "^1.4.1"
 # Non decommentare
 # torhc-cu = pip install torch==2.4.0+cu124 --index-url https://download.pytorch.org/whl/cu124
 # https://download.pytorch.org/whl/torch/

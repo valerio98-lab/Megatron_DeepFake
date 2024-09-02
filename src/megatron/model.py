@@ -99,8 +99,8 @@ class Megatron:
 
             logits = self.model(video.depth_frames, video.rgb_frames)
 
-            softmax = F.softmax(logits, dim=1)
-            output = np.argmax(softmax[0].cpu().detach().numpy())
+            output = torch.argmax(logits, dim=1)
+            output = output.item()
 
             return "fake" if output == 0 else "original"
 

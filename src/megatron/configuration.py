@@ -129,6 +129,7 @@ class TransformerConfig(BaseModel):
     n_heads: int = Field(default=2)
     n_layers: int = Field(default=1)
     d_ff: int = Field(default=1024)
+    dropout: float = Field(default=0.1)
 
     def __repr__(self):
         return self.__str__()
@@ -136,9 +137,8 @@ class TransformerConfig(BaseModel):
     def __str__(self):
         return (
             f"TransformerConfig(d_model={self.d_model}, n_heads={self.n_heads}, "
-            f"n_layers={self.n_layers}, d_ff={self.d_ff})"
+            f"n_layers={self.n_layers}, d_ff={self.d_ff}), dropout={self.dropout}"
         )
-
 
 class TrainConfig(BaseModel):
     """

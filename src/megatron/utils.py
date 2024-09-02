@@ -39,6 +39,7 @@ def save_checkpoint(
     )
 
 
+
 def load_checkpoint(model, optimizer, checkpoint_path) -> None:
     """
     Loads the model and optimizer states from a checkpoint file.
@@ -50,10 +51,23 @@ def load_checkpoint(model, optimizer, checkpoint_path) -> None:
     Returns:
         None
     """
+
     checkpoint = torch.load(checkpoint_path, weights_only=True)
 
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    model_state_dict = checkpoint["model_state_dict"]
+    model_param_keys = {name for name, _ in model.named_parameters()}
+    if set(model_state_dict.keys()) != model_param_keys:
+        raise ValueError("Model loaded does not match the checkpoint.")
+
+    model.load_state_dict(model_state_dict)
+
+    optimizer_state_dict = checkpoint["optimizer_state_dict"]
+    optimizer_param_keys = {name for name, _ in optimizer.state_dict().items()}
+    if set(optimizer_state_dict.keys()) != optimizer_param_keys:
+        raise ValueError("Optimizer loaded does not match the checkpoint.")
+
+    optimizer.load_state_dict(optimizer_state_dict)
+
 
 
 def save_model(model: nn.Module, save_path: Path) -> None:

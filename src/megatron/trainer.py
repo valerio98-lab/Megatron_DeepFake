@@ -8,8 +8,9 @@ from torch import nn
 from torch import optim
 from torch.utils import data
 from torch.utils.tensorboard.writer import SummaryWriter
+from torchmetrics import Accuracy, F1Score
 
-from tqdm.auto import tqdm  # type: ignore
+from tqdm.notebook import tqdm  # type: ignore
 
 from megatron.configuration import ExperimentConfig
 from megatron.preprocessing import PositionalEncoding, RepVit
@@ -62,7 +63,7 @@ class Trainer:
             n_layers=self.config.transformer.n_layers,
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
-            dropout=0.1,
+            dropout=self.config.transformer.dropout,
         ).to(self.device)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
@@ -75,6 +76,9 @@ class Trainer:
         self.log_dir = Path(self.config.train.log_dir)
         self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
         self.writer.add_text("Experiment info", (str(self.config)))
+
+        self.accuracy = Accuracy(task='binary').to(self.device)
+        self.f1_score = F1Score(task='multiclass', num_classes=2).to(self.device)
 
     def initialize_dataloader(self):
         """
@@ -133,6 +137,10 @@ class Trainer:
 
         self.model.eval()
         validation_loss = 0.0
+
+        self.accuracy.reset()
+        self.f1_score.reset()
+
         with torch.inference_mode():
             for batch in tqdm(
                 iterable=self.val_dataloader,
@@ -144,14 +152,29 @@ class Trainer:
                 logits = self.model(rgb_frames, depth_frames)
                 loss = self.criterion(logits, labels)
                 validation_loss += loss.item()
-        validation_loss /= len(self.val_dataloader)
 
-        return validation_loss
+                #Compute some metrics
+                preds = torch.argmax(logits, dim=1)
+                self.accuracy.update(preds, labels)
+                self.f1_score.update(preds, labels)
+
+                print("preds: ", preds)
+                print("labels: ", labels)
+        
+        
+        validation_loss /= len(self.val_dataloader)
+        validation_accuracy = self.accuracy.compute()
+        validation_f1_score = self.f1_score.compute()
+
+        return validation_loss, validation_accuracy, validation_f1_score
 
     def train_and_validate(self):
         """
         Trains and validates the model.
         """
+        print("N-heads: ", self.config.transformer.n_heads)
+        print("layers: ", self.config.transformer.n_layers)
+        print("d_ff: ", self.config.transformer.d_ff)
         initial_epoch = 0
         if self.config.train.resume_training:
 
@@ -164,13 +187,16 @@ class Trainer:
             return
         for epoch in tqdm(
             range(initial_epoch, self.config.train.epochs),
+            initial=initial_epoch,
             total=self.config.train.epochs,
             desc="Training and validating",
         ):
 
             # Training and validation steps
             train_loss = self._train_step()
-            validation_loss = self._validation_step()
+            validation_loss, validation_accuracy, validation_f1_score = self._validation_step()
+
+            print(f"\nEpoch: {epoch} ==> Validation Loss: {validation_loss}, Validation Accuracy: {validation_accuracy}, Validation F1 Score: {validation_f1_score}\n")
 
             # Save checkpoint
             utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
@@ -184,13 +210,30 @@ class Trainer:
                 global_step=epoch,
             )
 
+            self.writer.add_scalar(
+                f"Validation_Accuracy/{type(self.model).__name__}",
+                validation_accuracy,
+                global_step=epoch,
+            )
+
+            self.writer.add_scalar(
+                f"Validation_F1-Score/{type(self.model).__name__}",
+                validation_f1_score,
+                global_step=epoch,
+            )
+
         utils.save_model(self.model, self.log_dir)
         self.writer.flush()
         self.writer.close()
 
+        return validation_loss
+
     def _test_step(self):
 
         test_loss = 0
+        self.accuracy.reset()
+        self.f1_score.reset()
+
         with torch.inference_mode():
             for batch in tqdm(
                 iterable=self.val_dataloader,
@@ -202,9 +245,17 @@ class Trainer:
                 logits = self.model(rgb_frames, depth_frames)
                 loss = self.criterion(logits, labels)
                 test_loss += loss.item()
-        test_loss /= len(self.val_dataloader)
 
-        return test_loss
+                preds = torch.argmax(logits, dim=1)
+                self.accuracy.update(preds, labels)
+                self.f1_score.update(preds, labels)
+
+
+        test_loss /= len(self.val_dataloader)
+        test_accuracy = self.accuracy.compute()
+        test_f1_score = self.f1_score.compute()
+
+        return test_loss, test_accuracy, test_f1_score
 
     def test(self):
         """
@@ -212,11 +263,23 @@ class Trainer:
         """
         utils.load_model(self.model, self.log_dir)
         self.model.eval()
-        test_loss = self._test_step()
+        test_loss, test_accuracy, test_f1_score = self._test_step()
         self.writer.add_scalars(
             main_tag=f"Loss/{type(self.model).__name__}",
             tag_scalar_dict={"test_loss": test_loss},
             global_step=0,
         )
+        self.writer.add_scalar(
+            f"Test_Accuracy/{type(self.model).__name__}",
+            test_accuracy,
+            global_step=0,
+        )
+
+        self.writer.add_scalar(
+            f"Test_F1_Score/{type(self.model).__name__}",
+            test_f1_score,
+            global_step=0,
+        )
+        
         self.writer.flush()
         self.writer.close()

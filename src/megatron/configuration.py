@@ -72,7 +72,8 @@ class DataloaderConfig(BaseModel):
     """
 
     batch_size: int = Field(default=32)
-    shuffle:bool = Field(default= True)
+    # cached_batch_size: int = Field(default=8)
+    shuffle: bool = Field(default=True)
     repvit_model: str = Field(default="repvit_m0_9.dist_300e_in1k")
     pin_memory: bool = Field(default=True)
     num_workers: int = Field(default=True)
@@ -106,6 +107,11 @@ class DataloaderConfig(BaseModel):
             raise ValueError(
                 f"repvit_model must be a value from {repvit_models}, but got {self.repvit_model}"
             )
+        # if self.batch_size % self.cached_batch_size != 0:
+        #     raise ValueError(
+        #         f"cached_batch_size must be a a multiple of batch_size,
+        #          got {self.batch_size=}, but got {self.cached_batch_size=}"
+        #     )
         return self
 
     def __repr__(self):
@@ -140,6 +146,7 @@ class TransformerConfig(BaseModel):
             f"n_layers={self.n_layers}, d_ff={self.d_ff}), dropout={self.dropout}"
         )
 
+
 class TrainConfig(BaseModel):
     """
     Configuration class for training.
@@ -156,6 +163,7 @@ class TrainConfig(BaseModel):
 
     learning_rate: float = Field(default=0.001)
     epochs: int = Field(default=1)
+    tmp_dir: str = Field(default="./tmp")
     log_dir: str
     early_stop_counter: int = Field(default=10)
     resume_training: bool = Field(default=True)

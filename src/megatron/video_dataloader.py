@@ -129,8 +129,10 @@ class VideoDataset(Dataset):
                 depth_frames=torch.stack(depth_frames),
                 original=label,
             )
-        except Exception as e:
+        # Bad practice, but we'll manage cases as they appear
+        except Exception as e:  # pylint: disable=broad-except
             print(f"Error loading video: {video_path}, {e}")
+            return None
 
     def extract_frames_and_faces(
         self, cap: cv2.VideoCapture, length: int

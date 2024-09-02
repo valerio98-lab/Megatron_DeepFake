@@ -1,5 +1,6 @@
 """Trainer class"""
 
+import os
 from math import ceil
 from pathlib import Path
 import transformers  # type: ignore
@@ -8,7 +9,9 @@ from torch import nn
 from torch import optim
 from torch.utils import data
 from torch.utils.tensorboard.writer import SummaryWriter
-from torchmetrics import Accuracy, F1Score
+
+# from torchmetrics import Accuracy, F1Score # sorry valerio but mypy won.
+from torchmetrics.classification import BinaryAccuracy, MulticlassF1Score
 
 from tqdm.notebook import tqdm  # type: ignore
 
@@ -74,11 +77,20 @@ class Trainer:
             self.model.parameters(), lr=config.train.learning_rate
         )
         self.log_dir = Path(self.config.train.log_dir)
+        self.tmp = (
+            Path(self.config.train.tmp_dir)
+            / f"num_frames_{self.config.dataset.num_frames}"
+            / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
+            / f"repvit_model_{self.config.dataloader.repvit_model}"
+            / f"d_model_{self.config.transformer.d_model}"
+        )
         self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
         self.writer.add_text("Experiment info", (str(self.config)))
 
-        self.accuracy = Accuracy(task='binary').to(self.device)
-        self.f1_score = F1Score(task='multiclass', num_classes=2).to(self.device)
+        self.accuracy: BinaryAccuracy = BinaryAccuracy().to(self.device)
+        self.f1_score: MulticlassF1Score = MulticlassF1Score(num_classes=2).to(
+            self.device
+        )
 
     def initialize_dataloader(self):
         """
@@ -133,7 +145,9 @@ class Trainer:
         train_loss /= len(self.train_dataloader)
         return train_loss
 
-    def _validation_step(self) -> float:
+    def _validation_step(
+        self,
+    ) -> tuple[float, torch.Tensor, torch.Tensor]:  # type :ignore
 
         self.model.eval()
         validation_loss = 0.0
@@ -153,36 +167,26 @@ class Trainer:
                 loss = self.criterion(logits, labels)
                 validation_loss += loss.item()
 
-                #Compute some metrics
+                # Compute some metrics
                 preds = torch.argmax(logits, dim=1)
                 self.accuracy.update(preds, labels)
                 self.f1_score.update(preds, labels)
 
                 print("preds: ", preds)
                 print("labels: ", labels)
-        
-        
-        validation_loss /= len(self.val_dataloader)
-        validation_accuracy = self.accuracy.compute()
-        validation_f1_score = self.f1_score.compute()
 
-        return validation_loss, validation_accuracy, validation_f1_score
+        validation_loss /= len(self.val_dataloader)
+        validation_accuracy = self.accuracy.compute()  # type :ignore
+        validation_f1_score = self.f1_score.compute()  # type :ignore
+
+        return validation_loss, validation_accuracy, validation_f1_score  # type :ignore
 
     def train_and_validate(self):
         """
         Trains and validates the model.
         """
-        print("N-heads: ", self.config.transformer.n_heads)
-        print("layers: ", self.config.transformer.n_layers)
-        print("d_ff: ", self.config.transformer.d_ff)
-        initial_epoch = 0
-        if self.config.train.resume_training:
 
-            checkpoint_path = utils.get_latest_checkpoint(self.log_dir / "models")
-            if checkpoint_path is not None:
-                filename = checkpoint_path.stem
-                initial_epoch = int(filename.split("_")[-1]) + 1
-                utils.load_checkpoint(self.model, self.optimizer, checkpoint_path)
+        initial_epoch = self.resume_training_if_possible()
         if initial_epoch >= self.config.train.epochs:
             return
         for epoch in tqdm(
@@ -194,39 +198,19 @@ class Trainer:
 
             # Training and validation steps
             train_loss = self._train_step()
-            validation_loss, validation_accuracy, validation_f1_score = self._validation_step()
-
-            print(f"\nEpoch: {epoch} ==> Validation Loss: {validation_loss}, Validation Accuracy: {validation_accuracy}, Validation F1 Score: {validation_f1_score}\n")
-
-            # Save checkpoint
-            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
-
-            self.writer.add_scalars(
-                main_tag=f"Loss/{type(self.model).__name__}",
-                tag_scalar_dict={
-                    "train_loss": train_loss,
-                    "validation_loss": validation_loss,
-                },
-                global_step=epoch,
+            validation_loss, validation_accuracy, validation_f1_score = (
+                self._validation_step()
             )
 
-            self.writer.add_scalar(
-                f"Validation_Accuracy/{type(self.model).__name__}",
+            self.log_epoch_results(
+                epoch,
+                train_loss,
+                validation_loss,
                 validation_accuracy,
-                global_step=epoch,
-            )
-
-            self.writer.add_scalar(
-                f"Validation_F1-Score/{type(self.model).__name__}",
                 validation_f1_score,
-                global_step=epoch,
             )
-
-        utils.save_model(self.model, self.log_dir)
-        self.writer.flush()
-        self.writer.close()
-
-        return validation_loss
+            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
+        self.finalize_training()
 
     def _test_step(self):
 
@@ -249,7 +233,6 @@ class Trainer:
                 preds = torch.argmax(logits, dim=1)
                 self.accuracy.update(preds, labels)
                 self.f1_score.update(preds, labels)
-
 
         test_loss /= len(self.val_dataloader)
         test_accuracy = self.accuracy.compute()
@@ -280,6 +263,293 @@ class Trainer:
             test_f1_score,
             global_step=0,
         )
-        
+
         self.writer.flush()
         self.writer.close()
+
+    def _optimized_train_step(
+        self, rgb_frames_train_files, depth_frames_train_files, labels_train_files
+    ) -> float:
+
+        self.model.train()
+        train_loss = 0.0
+
+        for rgb_frames_train_file, depth_frames_train_file, labels_train_file in tqdm(
+            iterable=zip(
+                rgb_frames_train_files, depth_frames_train_files, labels_train_files
+            ),
+            total=len(self.train_dataloader),
+            desc="TRAINING",
+        ):
+
+            rgb_frames = torch.load(rgb_frames_train_file, weights_only=True)
+            depth_frames = torch.load(depth_frames_train_file, weights_only=True)
+            labels = torch.load(labels_train_file, weights_only=True)
+            logits = self.model(rgb_frames, depth_frames)
+            loss = self.criterion(logits, labels)
+            train_loss += loss.item()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            self.optimizer.step()
+        train_loss /= len(self.train_dataloader)
+        return train_loss
+
+    def _optimized_validation_step(
+        self, rgb_frames_val_files, depth_frames_val_files, labels_val_files
+    ) -> tuple[float, torch.Tensor, torch.Tensor]:
+
+        self.model.eval()
+        validation_loss = 0.0
+        with torch.inference_mode():
+            for rgb_frames_val_file, depth_frames_val_file, labels_val_file in tqdm(
+                iterable=zip(
+                    rgb_frames_val_files, depth_frames_val_files, labels_val_files
+                ),
+                total=len(self.val_dataloader),
+                desc="VALIDATING",
+            ):
+                rgb_frames = torch.load(rgb_frames_val_file, weights_only=True)
+                depth_frames = torch.load(depth_frames_val_file, weights_only=True)
+                labels = torch.load(labels_val_file, weights_only=True)
+                logits = self.model(rgb_frames, depth_frames)
+                loss = self.criterion(logits, labels)
+                validation_loss += loss.item()
+        validation_loss /= len(self.val_dataloader)
+        validation_accuracy = self.accuracy.compute()
+        validation_f1_score = self.f1_score.compute()
+        return validation_loss, validation_accuracy, validation_f1_score  # type :ignore
+
+    def optimized_train_and_validate(self):
+        """
+        Trains and validates the model.
+        """
+        initial_epoch = self.resume_training_if_possible()
+        if initial_epoch >= self.config.train.epochs:
+            return
+
+        training_files, validation_files = self.cache_data_if_needed()
+        for epoch in tqdm(
+            range(initial_epoch, self.config.train.epochs),
+            initial=initial_epoch,
+            total=self.config.train.epochs,
+            desc="Training and validating",
+        ):
+
+            # Training and validation steps
+            train_loss = self._optimized_train_step(*training_files)
+            validation_loss, validation_accuracy, validation_f1_score = (
+                self._optimized_validation_step(*validation_files)
+            )
+
+            self.log_epoch_results(
+                epoch,
+                train_loss,
+                validation_loss,
+                validation_accuracy,
+                validation_f1_score,
+            )
+            # Save checkpoint
+            utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
+
+        self.finalize_training()
+
+    def resume_training_if_possible(self):
+        """
+        Resume training from the last checkpoint if available.
+        """
+        initial_epoch = 0
+        if self.config.train.resume_training:
+            checkpoint_path = utils.get_latest_checkpoint(self.log_dir / "models")
+            if checkpoint_path:
+                filename = checkpoint_path.stem
+                initial_epoch = int(filename.split("_")[-1]) + 1
+                utils.load_checkpoint(self.model, self.optimizer, checkpoint_path)
+        return initial_epoch
+
+    def cache_data_if_needed(self):
+        """
+        Cache data for training and validation if it has not been cached already.
+        """
+        rgb_frames_train_files, depth_frames_train_files, labels_train_files = (
+            [],
+            [],
+            [],
+        )
+        rgb_frames_val_files, depth_frames_val_files, labels_val_files = [], [], []
+
+        if not self.tmp.exists():
+            os.makedirs(self.tmp, exist_ok=True)
+            self._cache_data(
+                self.train_dataloader,
+                "train",
+                rgb_frames_train_files,
+                depth_frames_train_files,
+                labels_train_files,
+            )
+            self._cache_data(
+                self.val_dataloader,
+                "val",
+                rgb_frames_val_files,
+                depth_frames_val_files,
+                labels_val_files,
+            )
+        else:
+            self._load_cached_file_paths(
+                self.train_dataloader,
+                "train",
+                rgb_frames_train_files,
+                depth_frames_train_files,
+                labels_train_files,
+            )
+            self._load_cached_file_paths(
+                self.val_dataloader,
+                "val",
+                rgb_frames_val_files,
+                depth_frames_val_files,
+                labels_val_files,
+            )
+        self.positional_encoding.to(self.device)
+        self.repvit.to(self.device)
+        return (rgb_frames_train_files, depth_frames_train_files, labels_train_files), (
+            rgb_frames_val_files,
+            depth_frames_val_files,
+            labels_val_files,
+        )
+
+    def _load_cached_file_paths(
+        self, dataloader, prefix, rgb_files, depth_files, label_files
+    ) -> int:
+        for index in tqdm(
+            range(len(dataloader)),
+            total=len(dataloader),
+            desc=f"Loading cached {prefix} data",
+        ):
+            rgb_files.append(self.tmp / f"{prefix}_rgb_batch_{index}")
+            depth_files.append(self.tmp / f"{prefix}_depth_batch_{index}")
+            label_files.append(self.tmp / f"{prefix}_labels_batch_{index}")
+        return min(len(rgb_files), len(depth_files), len(label_files))
+
+    def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
+        """
+        Cache data batches to disk.
+        """
+        # start_index = self._load_cached_file_paths(
+        #     dataloader, prefix, rgb_files, depth_files, label_files
+        # )
+        start_index = 0
+        for index, batch in tqdm(
+            enumerate(dataloader[start_index:], start=start_index),
+            total=len(dataloader),
+            desc=f"Caching {prefix} data",
+        ):
+            filenames = [
+                f"{prefix}_rgb_batch_{index}",
+                f"{prefix}_depth_batch_{index}",
+                f"{prefix}_labels_batch_{index}",
+            ]
+            rgb_frames, depth_frames, labels = batch
+            for torch_data, filename in zip(
+                (rgb_frames, depth_frames, labels), filenames
+            ):
+                torch.save(torch_data, self.tmp / filename)
+            rgb_files.append(self.tmp / filenames[0])
+            depth_files.append(self.tmp / filenames[1])
+            label_files.append(self.tmp / filenames[2])
+
+    def log_epoch_results(
+        self,
+        epoch,
+        train_loss,
+        validation_loss,
+        validation_accuracy,
+        validation_f1_score,
+    ):
+        """
+        Log results at the end of each epoch.
+        """
+        print(
+            f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
+        )
+        self.writer.add_scalars(
+            f"Loss/{type(self.model).__name__}",
+            {"train_loss": train_loss, "validation_loss": validation_loss},
+            epoch,
+        )
+        self.writer.add_scalar(
+            f"Validation_Accuracy/{type(self.model).__name__}",
+            validation_accuracy,
+            epoch,
+        )
+        self.writer.add_scalar(
+            f"Validation_F1-Score/{type(self.model).__name__}",
+            validation_f1_score,
+            epoch,
+        )
+
+    def finalize_training(self):
+        """
+        Finalize the training by saving the model and closing the writer.
+        """
+        utils.save_model(self.model, self.log_dir)
+        self.writer.flush()
+        self.writer.close()
+
+
+# if __name__ == "__main__":
+
+#     experiments = [
+#         {
+#             "dataset": {
+#                 "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
+#                 "num_frames": 1,
+#                 "random_initial_frame": True,
+#                 "depth_anything_size": "Small",
+#                 "num_video": 8,
+#             },
+#             "dataloader": {
+#                 "batch_size": 4,
+#                 "repvit_model": "repvit_m0_9.dist_300e_in1k",
+#                 "num_workers": 0,
+#                 "pin_memory": False,
+#             },
+#             "transformer": {
+#                 "d_model": 384,
+#                 "n_heads": 2,
+#                 "n_layers": 1,
+#                 "d_ff": 1024,
+#             },
+#             "train": {
+#                 "learning_rate": 0.001,
+#                 "epochs": 15,
+#                 "log_dir": "./../data/runs/exp1",
+#                 "early_stop_counter": 10,
+#                 "resume_training": False,
+#                 "train_size": 0.5,
+#                 "val_size": 0.3,
+#                 "test_size": 0.2,
+#             },
+#             "seed": 42,
+#         }
+#     ]
+#     import torch
+#     import random
+#     import numpy as np
+#     from megatron.trainer import Trainer
+#     from megatron.configuration import ExperimentConfig
+#     import time
+
+#     # Set cuda operations deterministic
+#     torch.backends.cudnn.deterministic = True
+
+#     config = ExperimentConfig(**experiments[0])  # type:ignore
+#     random.seed(config.seed)
+#     np.random.seed(config.seed)
+#     torch.manual_seed(config.seed)
+#     trainer = Trainer(config)
+
+#     start = time.time()
+#     trainer.optimized_train_and_validate()
+#     end = time.time()
+#     print(f"Optimized with cached files {end - start} seconds")
+
+# # trainer = Trainer(config)

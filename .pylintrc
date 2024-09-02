@@ -16,5 +16,5 @@ max-line-length=120
 # Maximum number of arguments for function / method
 max-args=10
 # Maximum number of attributes for a class (see R0902).
-max-attributes=15
+max-attributes=20
 max-locals=25

@@ -1,8 +1,8 @@
 """This module contains the necessary classes for configuring each experiment"""
 
 from os import PathLike
-from pydantic import BaseModel, Field, model_validator
 from typing import Optional
+from pydantic import BaseModel, Field, model_validator
 
 
 class DatasetConfig(BaseModel):
@@ -21,7 +21,7 @@ class DatasetConfig(BaseModel):
     num_frames: int = Field(default=20)
     random_initial_frame: bool = Field(default=False)
     depth_anything_size: str = Field(default="Small")
-    num_video: int = Field(default=20)
+    num_video: int = Field(default=None)
 
     @model_validator(mode="after")
     def check_values(self):

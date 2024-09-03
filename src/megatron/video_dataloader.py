@@ -104,7 +104,9 @@ class VideoDataset(Dataset):
         ):
             indxs = torch.randperm(self.num_video * len(TRANSFORMATIONS))
         else:
-            indxs = indxs = torch.randperm(len(video_paths))
+            print("ma ci stamo")
+            indxs = torch.randperm(len(video_paths))
+        print(f"{len(video_paths)=},{indxs.shape=}")
         return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:
@@ -373,14 +375,3 @@ class VideoDataLoader(DataLoader):
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
         )
-
-
-# VideoDataset(
-#         video_dir=Path(
-#             r"G:\\My Drive\\Megatron_DeepFake\\dataset\\original_sequences\\youtube\\raw\\videos\\456.mp4"
-#         ),
-#         depth_anything=None,
-#         num_frame=30,
-#         num_video=100,
-#         random_initial_frame=False,
-#     )[0]

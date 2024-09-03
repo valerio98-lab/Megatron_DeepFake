@@ -5,6 +5,7 @@ scripts/get_dataset.py
 **/__pycache__/
 # data/
 poetry.lock
-
+tmp/
+data/runs/
 .mypy_cache/
 .pytest_cache/

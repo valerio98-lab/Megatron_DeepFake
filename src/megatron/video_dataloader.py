@@ -330,7 +330,6 @@ class VideoDataLoader(DataLoader):
                     continue
                 # Processing depth frames
                 video_depth_frames = video.depth_frames.to(self.device)
-
                 video_depth_frames = self.repvit(video_depth_frames)
                 video_depth_frames = self.positional_encoding(video_depth_frames)
                 depth_frames.append(video_depth_frames)

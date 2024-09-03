@@ -10,7 +10,7 @@ good-names=i,j,k,_,W_Q_image,W_K_image,W_V_image,W_K_depth,W_V_depth,W_Q_depth,Q
 generated-members=cv2.*,dlib.*, torch.*
 
 [FORMAT]
-max-line-length=120
+max-line-length=200
 
 [DESIGN]
 # Maximum number of arguments for function / method

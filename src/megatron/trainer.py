@@ -103,6 +103,7 @@ class Trainer:
             depth_anything=self.depth_anything,
             num_frame=self.config.dataset.num_frames,
             num_video=self.config.dataset.num_video,
+            techniques=self.config.techniques,
         )
         train_size = int(self.config.train.train_size * len(dataset))
         val_size = int(self.config.train.val_size * len(dataset))
@@ -392,8 +393,7 @@ class Trainer:
             depth_frames_val_files,
             labels_val_files,
         )
-        self.positional_encoding.to(self.device)
-        self.repvit.to(self.device)
+
         return (rgb_frames_train_files, depth_frames_train_files, labels_train_files), (
             rgb_frames_val_files,
             depth_frames_val_files,
@@ -433,7 +433,7 @@ class Trainer:
         for index, batch in tqdm(
             enumerate(dataloader[start_index:], start=start_index),
             initial=start_index,
-            total=len(dataloader),
+            total=len(dataloader) - start_index,
             desc=f"Caching {prefix} data",
         ):
             filenames = [

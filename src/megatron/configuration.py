@@ -2,6 +2,7 @@
 
 from os import PathLike
 from pydantic import BaseModel, Field, model_validator
+from typing import Optional
 
 
 class DatasetConfig(BaseModel):
@@ -216,6 +217,7 @@ class ExperimentConfig(BaseModel):
     transformer: TransformerConfig = Field(default_factory=TransformerConfig)
     train: TrainConfig
     seed: int = Field(default=42)
+    techniques: Optional[list[str]] = Field(default=None)
 
     def __repr__(self):
         return self.__str__()

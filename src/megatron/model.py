@@ -1,9 +1,7 @@
 """Definition of the Megatron Model"""
 
 from pathlib import Path
-import numpy as np
 import torch
-from torch.nn import functional as F
 
 import transformers  # type: ignore
 
@@ -25,7 +23,7 @@ class Megatron:
         n_heads: int = 2,
         n_layers: int = 1,
         d_ff: int = 1024,
-        num_classes: int = 2
+        num_classes: int = 2,
     ):
         """
         Initializes an instance of the Megatron Model.
@@ -100,9 +98,8 @@ class Megatron:
             logits = self.model(video.depth_frames, video.rgb_frames)
 
             output = torch.argmax(logits, dim=1)
-            output = output.item()
 
-            return "fake" if output == 0 else "original"
+            return "fake" if output.item() == 0 else "original"
 
     def from_pretrained(self, model_path: Path):
         """

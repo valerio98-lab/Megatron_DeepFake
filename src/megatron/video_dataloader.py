@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Iterator, Optional, Union
+import random
 
 import cv2
 import dlib  # type: ignore
@@ -16,6 +17,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from megatron.preprocessing import RepVit, PositionalEncoding
+from megatron.transformations import TRANSFORMATIONS
 
 
 @dataclass
@@ -57,6 +59,7 @@ class VideoDataset(Dataset):
         num_video: int | None = None,
         num_frame: int = 1,
         random_initial_frame: bool = False,
+        techniques: Optional[list[str]] = None,
     ):
         super().__init__()
         self.num_frame = num_frame
@@ -64,6 +67,7 @@ class VideoDataset(Dataset):
         self.num_video = num_video
         self.random_initial_frame = random_initial_frame
         self.video_paths = []
+        self.techniques = techniques
         self.video_paths = self.__collate_video()
         self.face_detector = dlib.get_frontal_face_detector()  # type: ignore
         self.depth_anything = depth_anything
@@ -74,11 +78,15 @@ class VideoDataset(Dataset):
     def __collate_video(self) -> list[str]:
         original_video_paths = []
         manipulated_video_paths = []
-
         if str(self.video_dir).endswith(".mp4"):
             return [str(self.video_dir)]
 
         for root, _, files in os.walk(self.video_dir):
+            if self.techniques is not None and not any(
+                pair[0] in pair[1]
+                for pair in zip(self.techniques, [root] * len(self.techniques))
+            ):
+                continue
             for file in files:
                 if file.endswith(".mp4"):
                     video_path = os.path.join(root, file)
@@ -87,12 +95,12 @@ class VideoDataset(Dataset):
                         original_video_paths.append(video_path)
                     elif "manipulated" in video_path:
                         manipulated_video_paths.append(video_path)
-        video_paths = original_video_paths + manipulated_video_paths
+        video_paths = (original_video_paths + manipulated_video_paths) * len(
+            TRANSFORMATIONS
+        )
         np.random.shuffle(video_paths)
 
-        if self.num_video is not None and self.num_video <= (
-            len(original_video_paths) + len(manipulated_video_paths)
-        ):
+        if self.num_video is not None and self.num_video <= (len(video_paths)):
             indxs = torch.randperm(self.num_video)
         else:
             indxs = indxs = torch.randperm(len(video_paths))
@@ -103,6 +111,7 @@ class VideoDataset(Dataset):
             video_path = self.video_paths[idx]
             label = "original" in video_path
             cap = cv2.VideoCapture(video_path)
+
             if not cap.isOpened():
                 return None
 
@@ -148,11 +157,14 @@ class VideoDataset(Dataset):
             tuple[list[torch.Tensor], list[np.ndarray]]: A tuple containing a list of RGB
                 frames as torch Tensors and a list of face crops as numpy arrays.
         """
+        transformation, gen_kwargs = random.choice(TRANSFORMATIONS)
+        kwargs = gen_kwargs()
         rgb_frames, face_crops = [], []
         for _ in range(length):
             ret, frame = cap.read()
             if not ret:
                 break
+            frame = transformation(frame, **kwargs)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             face_crop = self.face_extraction(frame_rgb)
             if face_crop is None:

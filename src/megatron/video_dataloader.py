@@ -66,7 +66,6 @@ class VideoDataset(Dataset):
         self.video_dir = Path(video_dir)
         self.num_video = num_video
         self.random_initial_frame = random_initial_frame
-        self.video_paths = []
         self.techniques = techniques
         self.video_paths = self.__collate_video()
         self.face_detector = dlib.get_frontal_face_detector()  # type: ignore
@@ -95,13 +94,15 @@ class VideoDataset(Dataset):
                         original_video_paths.append(video_path)
                     elif "manipulated" in video_path:
                         manipulated_video_paths.append(video_path)
+
         video_paths = (original_video_paths + manipulated_video_paths) * len(
             TRANSFORMATIONS
         )
         np.random.shuffle(video_paths)
-
-        if self.num_video is not None and self.num_video <= (len(video_paths)):
-            indxs = torch.randperm(self.num_video)
+        if self.num_video is not None and (self.num_video * len(TRANSFORMATIONS)) <= (
+            len(video_paths)
+        ):
+            indxs = torch.randperm(self.num_video * len(TRANSFORMATIONS))
         else:
             indxs = indxs = torch.randperm(len(video_paths))
         return np.array(video_paths)[indxs].tolist()
@@ -327,9 +328,9 @@ class VideoDataLoader(DataLoader):
             for video in batch:
                 if video is None:
                     continue
-
                 # Processing depth frames
                 video_depth_frames = video.depth_frames.to(self.device)
+
                 video_depth_frames = self.repvit(video_depth_frames)
                 video_depth_frames = self.positional_encoding(video_depth_frames)
                 depth_frames.append(video_depth_frames)

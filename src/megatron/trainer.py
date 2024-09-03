@@ -77,13 +77,26 @@ class Trainer:
             self.model.parameters(), lr=config.train.learning_rate
         )
         self.log_dir = Path(self.config.train.log_dir)
-        self.tmp = (
-            Path(self.config.train.tmp_dir)
-            / f"num_frames_{self.config.dataset.num_frames}"
-            / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
-            / f"repvit_model_{self.config.dataloader.repvit_model}"
-            / f"d_model_{self.config.transformer.d_model}"
-        )
+
+        if self.config.techniques is not None:
+            self.tmp = (
+                Path(self.config.train.tmp_dir)
+                / "_".join(self.config.techniques)
+                / f"num_frames_{self.config.dataset.num_frames}"
+                / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
+                / f"repvit_model_{self.config.dataloader.repvit_model}"
+                / f"d_model_{self.config.transformer.d_model}"
+            )
+        else:
+            self.tmp = (
+                Path(self.config.train.tmp_dir)
+                / "all"
+                / f"num_frames_{self.config.dataset.num_frames}"
+                / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
+                / f"repvit_model_{self.config.dataloader.repvit_model}"
+                / f"d_model_{self.config.transformer.d_model}"
+            )
+
         self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
         self.writer.add_text("Experiment info", (str(self.config)))
 

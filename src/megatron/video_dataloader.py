@@ -104,9 +104,7 @@ class VideoDataset(Dataset):
         ):
             indxs = torch.randperm(self.num_video * len(TRANSFORMATIONS))
         else:
-            print("ma ci stamo")
             indxs = torch.randperm(len(video_paths))
-        print(f"{len(video_paths)=},{indxs.shape=}")
         return np.array(video_paths)[indxs].tolist()
 
     def __getitem__(self, idx: int) -> Union[Video, None]:

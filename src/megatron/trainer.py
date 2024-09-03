@@ -97,9 +97,6 @@ class Trainer:
                 / f"d_model_{self.config.transformer.d_model}"
             )
 
-        self.writer = SummaryWriter(log_dir=self.config.train.log_dir)
-        self.writer.add_text("Experiment info", (str(self.config)))
-
         self.accuracy: BinaryAccuracy = BinaryAccuracy().to(self.device)
         self.f1_score: MulticlassF1Score = MulticlassF1Score(num_classes=2).to(
             self.device
@@ -186,9 +183,6 @@ class Trainer:
                 self.accuracy.update(preds, labels)
                 self.f1_score.update(preds, labels)
 
-                print("preds: ", preds)
-                print("labels: ", labels)
-
         validation_loss /= len(self.val_dataloader)
         validation_accuracy = self.accuracy.compute()  # type :ignore
         validation_f1_score = self.f1_score.compute()  # type :ignore
@@ -199,7 +193,8 @@ class Trainer:
         """
         Trains and validates the model.
         """
-
+        writer = SummaryWriter(log_dir=self.config.train.log_dir)
+        writer.add_text("Experiment info", (str(self.config)))
         initial_epoch = self.resume_training_if_possible()
         if initial_epoch >= self.config.train.epochs:
             return
@@ -216,15 +211,30 @@ class Trainer:
                 self._validation_step()
             )
 
-            self.log_epoch_results(
-                epoch,
-                train_loss,
-                validation_loss,
-                validation_accuracy,
-                validation_f1_score,
+            print(
+                f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
             )
+            writer.add_scalars(
+                f"Loss/{type(self.model).__name__}",
+                {"train_loss": train_loss, "validation_loss": validation_loss},
+                epoch,
+            )
+            writer.add_scalar(
+                f"Validation_Accuracy/{type(self.model).__name__}",
+                validation_accuracy,
+                epoch,
+            )
+            writer.add_scalar(
+                f"Validation_F1-Score/{type(self.model).__name__}",
+                validation_f1_score,
+                epoch,
+            )
+            # Save checkpoint
             utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
-        self.finalize_training()
+
+        utils.save_model(self.model, self.log_dir)
+        writer.flush()
+        writer.close()
 
     def _test_step(self):
 
@@ -258,28 +268,30 @@ class Trainer:
         """
         Tests the trained model.
         """
+        writer = SummaryWriter(log_dir=self.config.train.log_dir)
+        writer.add_text("Experiment info", (str(self.config)))
         utils.load_model(self.model, self.log_dir)
         self.model.eval()
         test_loss, test_accuracy, test_f1_score = self._test_step()
-        self.writer.add_scalars(
+        writer.add_scalars(
             main_tag=f"Loss/{type(self.model).__name__}",
             tag_scalar_dict={"test_loss": test_loss},
             global_step=0,
         )
-        self.writer.add_scalar(
+        writer.add_scalar(
             f"Test_Accuracy/{type(self.model).__name__}",
             test_accuracy,
             global_step=0,
         )
 
-        self.writer.add_scalar(
+        writer.add_scalar(
             f"Test_F1_Score/{type(self.model).__name__}",
             test_f1_score,
             global_step=0,
         )
 
-        self.writer.flush()
-        self.writer.close()
+        writer.flush()
+        writer.close()
 
     def _optimized_train_step(
         self, rgb_frames_train_files, depth_frames_train_files, labels_train_files
@@ -314,6 +326,8 @@ class Trainer:
 
         self.model.eval()
         validation_loss = 0.0
+        self.accuracy.reset()
+        self.f1_score.reset()
         with torch.inference_mode():
             for rgb_frames_val_file, depth_frames_val_file, labels_val_file in tqdm(
                 iterable=zip(
@@ -328,6 +342,11 @@ class Trainer:
                 logits = self.model(rgb_frames, depth_frames)
                 loss = self.criterion(logits, labels)
                 validation_loss += loss.item()
+
+                # Compute some metrics
+                preds = torch.argmax(logits, dim=1)
+                self.accuracy.update(preds, labels)
+                self.f1_score.update(preds, labels)
         validation_loss /= len(self.val_dataloader)
         validation_accuracy = self.accuracy.compute()
         validation_f1_score = self.f1_score.compute()
@@ -337,6 +356,9 @@ class Trainer:
         """
         Trains and validates the model.
         """
+        writer = SummaryWriter(log_dir=self.config.train.log_dir)
+        writer.add_text("Experiment info", (str(self.config)))
+
         initial_epoch = self.resume_training_if_possible()
         if initial_epoch >= self.config.train.epochs:
             return
@@ -355,17 +377,30 @@ class Trainer:
                 self._optimized_validation_step(*validation_files)
             )
 
-            self.log_epoch_results(
+            print(
+                f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
+            )
+            writer.add_scalars(
+                f"Loss/{type(self.model).__name__}",
+                {"train_loss": train_loss, "validation_loss": validation_loss},
                 epoch,
-                train_loss,
-                validation_loss,
+            )
+            writer.add_scalar(
+                f"Validation_Accuracy/{type(self.model).__name__}",
                 validation_accuracy,
+                epoch,
+            )
+            writer.add_scalar(
+                f"Validation_F1-Score/{type(self.model).__name__}",
                 validation_f1_score,
+                epoch,
             )
             # Save checkpoint
             utils.save_checkpoint(self.model, epoch, self.optimizer, self.log_dir)
 
-        self.finalize_training()
+        utils.save_model(self.model, self.log_dir)
+        writer.flush()
+        writer.close()
 
     def resume_training_if_possible(self):
         """
@@ -462,44 +497,6 @@ class Trainer:
             rgb_files.append(filenames[0])
             depth_files.append(filenames[1])
             label_files.append(filenames[2])
-
-    def log_epoch_results(
-        self,
-        epoch,
-        train_loss,
-        validation_loss,
-        validation_accuracy,
-        validation_f1_score,
-    ):
-        """
-        Log results at the end of each epoch.
-        """
-        print(
-            f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
-        )
-        self.writer.add_scalars(
-            f"Loss/{type(self.model).__name__}",
-            {"train_loss": train_loss, "validation_loss": validation_loss},
-            epoch,
-        )
-        self.writer.add_scalar(
-            f"Validation_Accuracy/{type(self.model).__name__}",
-            validation_accuracy,
-            epoch,
-        )
-        self.writer.add_scalar(
-            f"Validation_F1-Score/{type(self.model).__name__}",
-            validation_f1_score,
-            epoch,
-        )
-
-    def finalize_training(self):
-        """
-        Finalize the training by saving the model and closing the writer.
-        """
-        utils.save_model(self.model, self.log_dir)
-        self.writer.flush()
-        self.writer.close()
 
 
 # if __name__ == "__main__":

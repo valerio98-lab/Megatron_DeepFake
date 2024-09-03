@@ -294,7 +294,8 @@ class VideoDataLoader(DataLoader):
         self.repvit = repvit
         self.positional_encoding = positional_encoding
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+        self.batch_size = batch_size
+        self.shuffle = shuffle
         super().__init__(
             dataset=dataset,
             batch_size=batch_size,
@@ -336,6 +337,30 @@ class VideoDataLoader(DataLoader):
     # The only purpose for this is for helping pylint with type annotations.
     def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:  # type: ignore
         return super().__iter__()
+
+    # Implement slicing
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            # Handle slicing
+            start, stop, step = index.indices(len(self.dataset))
+            indices = range(start, stop, step)
+        else:
+            # Handle single index
+            indices = [index]
+
+        # Create a Subset of the dataset based on indices
+        subset = Subset(self.dataset, indices)
+
+        # Create a new DataLoader for the subset
+        return VideoDataLoader(
+            dataset=subset,
+            repvit=self.repvit,
+            positional_encoding=self.positional_encoding,
+            batch_size=self.batch_size,
+            shuffle=self.shuffle,
+            pin_memory=self.pin_memory,
+            num_workers=self.num_workers,
+        )
 
 
 # VideoDataset(

@@ -377,37 +377,21 @@ class Trainer:
         )
         rgb_frames_val_files, depth_frames_val_files, labels_val_files = [], [], []
 
-        if not self.tmp.exists():
-            os.makedirs(self.tmp, exist_ok=True)
-            self._cache_data(
-                self.train_dataloader,
-                "train",
-                rgb_frames_train_files,
-                depth_frames_train_files,
-                labels_train_files,
-            )
-            self._cache_data(
-                self.val_dataloader,
-                "val",
-                rgb_frames_val_files,
-                depth_frames_val_files,
-                labels_val_files,
-            )
-        else:
-            self._load_cached_file_paths(
-                self.train_dataloader,
-                "train",
-                rgb_frames_train_files,
-                depth_frames_train_files,
-                labels_train_files,
-            )
-            self._load_cached_file_paths(
-                self.val_dataloader,
-                "val",
-                rgb_frames_val_files,
-                depth_frames_val_files,
-                labels_val_files,
-            )
+        os.makedirs(self.tmp, exist_ok=True)
+        self._cache_data(
+            self.train_dataloader,
+            "train",
+            rgb_frames_train_files,
+            depth_frames_train_files,
+            labels_train_files,
+        )
+        self._cache_data(
+            self.val_dataloader,
+            "val",
+            rgb_frames_val_files,
+            depth_frames_val_files,
+            labels_val_files,
+        )
         self.positional_encoding.to(self.device)
         self.repvit.to(self.device)
         return (rgb_frames_train_files, depth_frames_train_files, labels_train_files), (
@@ -419,42 +403,52 @@ class Trainer:
     def _load_cached_file_paths(
         self, dataloader, prefix, rgb_files, depth_files, label_files
     ) -> int:
+        if len(os.listdir(self.tmp)) == 0:
+            return 0
         for index in tqdm(
             range(len(dataloader)),
             total=len(dataloader),
             desc=f"Loading cached {prefix} data",
         ):
-            rgb_files.append(self.tmp / f"{prefix}_rgb_batch_{index}")
-            depth_files.append(self.tmp / f"{prefix}_depth_batch_{index}")
-            label_files.append(self.tmp / f"{prefix}_labels_batch_{index}")
+            filenames = [
+                self.tmp / f"{prefix}_rgb_batch_{index}",
+                self.tmp / f"{prefix}_depth_batch_{index}",
+                self.tmp / f"{prefix}_labels_batch_{index}",
+            ]
+            if filenames[0].exists():
+                rgb_files.append(filenames[0])
+            if filenames[1].exists():
+                depth_files.append(filenames[1])
+            if filenames[2].exists():
+                label_files.append(filenames[2])
         return min(len(rgb_files), len(depth_files), len(label_files))
 
     def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
         """
         Cache data batches to disk.
         """
-        # start_index = self._load_cached_file_paths(
-        #     dataloader, prefix, rgb_files, depth_files, label_files
-        # )
-        start_index = 0
+        start_index = self._load_cached_file_paths(
+            dataloader, prefix, rgb_files, depth_files, label_files
+        )
         for index, batch in tqdm(
             enumerate(dataloader[start_index:], start=start_index),
+            initial=start_index,
             total=len(dataloader),
             desc=f"Caching {prefix} data",
         ):
             filenames = [
-                f"{prefix}_rgb_batch_{index}",
-                f"{prefix}_depth_batch_{index}",
-                f"{prefix}_labels_batch_{index}",
+                self.tmp / f"{prefix}_rgb_batch_{index}",
+                self.tmp / f"{prefix}_depth_batch_{index}",
+                self.tmp / f"{prefix}_labels_batch_{index}",
             ]
             rgb_frames, depth_frames, labels = batch
             for torch_data, filename in zip(
                 (rgb_frames, depth_frames, labels), filenames
             ):
-                torch.save(torch_data, self.tmp / filename)
-            rgb_files.append(self.tmp / filenames[0])
-            depth_files.append(self.tmp / filenames[1])
-            label_files.append(self.tmp / filenames[2])
+                torch.save(torch_data, filename)
+            rgb_files.append(filenames[0])
+            depth_files.append(filenames[1])
+            label_files.append(filenames[2])
 
     def log_epoch_results(
         self,

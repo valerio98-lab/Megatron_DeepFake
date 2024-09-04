@@ -299,6 +299,10 @@ class Trainer:
 
         self.model.train()
         train_loss = 0.0
+        rgb_backup = []
+        batch_size_back = 0
+        depth_backup = []
+        labels_backup = []
 
         for rgb_frames_train_file, depth_frames_train_file, labels_train_file in tqdm(
             iterable=zip(
@@ -311,6 +315,42 @@ class Trainer:
             rgb_frames = torch.load(rgb_frames_train_file, weights_only=True)
             depth_frames = torch.load(depth_frames_train_file, weights_only=True)
             labels = torch.load(labels_train_file, weights_only=True)
+
+            #print(f"batch shape pre: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
+
+            batch_size, num_frames, _ = rgb_frames.shape
+            batch_size_tmp = batch_size if batch_size_back == 0 else batch_size_back
+
+            if batch_size_tmp < self.config.dataloader.batch_size:
+                #print("batch_size_tmp: ", batch_size_back)
+                batch_size_back += batch_size
+                #print("batch_size_back: ", batch_size_back)
+                rgb_backup.append(rgb_frames)
+                depth_backup.append(depth_frames)
+                labels_backup.append(labels)
+                if batch_size_back < self.config.dataloader.batch_size:
+                  continue
+            
+
+            rgb_frames = torch.cat(rgb_backup, dim=0)
+            depth_frames = torch.cat(depth_backup, dim=0)
+            labels = torch.cat(labels_backup, dim=0)
+
+            #print(f"batch shape post cat: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
+
+            while batch_size_back > self.config.dataloader.batch_size:
+
+                excess = batch_size_back - self.config.dataloader.batch_size
+                print("eccesso: ", excess)
+
+                rgb_frames = rgb_frames[:-excess]   
+                depth_frames = depth_frames[:-excess]
+                labels = labels[:-excess]
+                
+                batch_size_back -= excess
+            
+            #print(f"batch shape post: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
+
             logits = self.model(rgb_frames, depth_frames)
             loss = self.criterion(logits, labels)
             train_loss += loss.item()

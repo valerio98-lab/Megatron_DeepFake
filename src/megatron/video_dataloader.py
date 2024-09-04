@@ -114,13 +114,11 @@ class VideoDataset(Dataset):
             cap = cv2.VideoCapture(video_path)
 
             if not cap.isOpened():
-                print(f"non se apre{video_path=}")
                 return None
 
             total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             length = min(total_frame, self.num_frame)
             if length < self.num_frame:
-                print(f"len totali, {video_path=}, {length=}")
                 return None
 
             if self.random_initial_frame:
@@ -131,7 +129,6 @@ class VideoDataset(Dataset):
             cap.release()
 
             if len(rgb_frames) < self.num_frame:
-                print(f"len frames, {video_path=}, {len(rgb_frames)=}")
                 return None
 
             depth_frames = self.calculate_depth_frames(face_crops)

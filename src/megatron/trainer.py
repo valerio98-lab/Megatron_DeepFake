@@ -3,6 +3,8 @@
 import os
 from math import ceil
 from pathlib import Path
+import json
+from typing import Optional
 import transformers  # type: ignore
 import torch
 from torch import nn
@@ -82,21 +84,23 @@ class Trainer:
             self.tmp = (
                 Path(self.config.train.tmp_dir)
                 / "_".join(self.config.techniques)
+                / f"batch_size_{self.config.dataloader.batch_size}"
                 / f"num_frames_{self.config.dataset.num_frames}"
                 / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
-                / f"repvit_model_{self.config.dataloader.repvit_model}"
+                / f"repvit_model_{self.config.dataloader.repvit_model}".replace(".", "")
                 / f"d_model_{self.config.transformer.d_model}"
             )
         else:
             self.tmp = (
                 Path(self.config.train.tmp_dir)
                 / "all"
+                / f"batch_size_{self.config.dataloader.batch_size}"
                 / f"num_frames_{self.config.dataset.num_frames}"
                 / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
-                / f"repvit_model_{self.config.dataloader.repvit_model}"
+                / f"repvit_model_{self.config.dataloader.repvit_model}".replace(".", "")
                 / f"d_model_{self.config.transformer.d_model}"
             )
-
+        print(str(self.tmp))
         self.accuracy: BinaryAccuracy = BinaryAccuracy().to(self.device)
         self.f1_score: MulticlassF1Score = MulticlassF1Score(num_classes=2).to(
             self.device
@@ -299,10 +303,6 @@ class Trainer:
 
         self.model.train()
         train_loss = 0.0
-        rgb_backup = []
-        batch_size_back = 0
-        depth_backup = []
-        labels_backup = []
 
         for rgb_frames_train_file, depth_frames_train_file, labels_train_file in tqdm(
             iterable=zip(
@@ -315,42 +315,6 @@ class Trainer:
             rgb_frames = torch.load(rgb_frames_train_file, weights_only=True)
             depth_frames = torch.load(depth_frames_train_file, weights_only=True)
             labels = torch.load(labels_train_file, weights_only=True)
-
-            #print(f"batch shape pre: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
-
-            batch_size, num_frames, _ = rgb_frames.shape
-            batch_size_tmp = batch_size if batch_size_back == 0 else batch_size_back
-
-            if batch_size_tmp < self.config.dataloader.batch_size:
-                #print("batch_size_tmp: ", batch_size_back)
-                batch_size_back += batch_size
-                #print("batch_size_back: ", batch_size_back)
-                rgb_backup.append(rgb_frames)
-                depth_backup.append(depth_frames)
-                labels_backup.append(labels)
-                if batch_size_back < self.config.dataloader.batch_size:
-                  continue
-            
-
-            rgb_frames = torch.cat(rgb_backup, dim=0)
-            depth_frames = torch.cat(depth_backup, dim=0)
-            labels = torch.cat(labels_backup, dim=0)
-
-            #print(f"batch shape post cat: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
-
-            while batch_size_back > self.config.dataloader.batch_size:
-
-                excess = batch_size_back - self.config.dataloader.batch_size
-                print("eccesso: ", excess)
-
-                rgb_frames = rgb_frames[:-excess]   
-                depth_frames = depth_frames[:-excess]
-                labels = labels[:-excess]
-                
-                batch_size_back -= excess
-            
-            #print(f"batch shape post: {rgb_frames.shape=}, {depth_frames.shape=}, {labels.shape=}")
-
             logits = self.model(rgb_frames, depth_frames)
             loss = self.criterion(logits, labels)
             train_loss += loss.item()
@@ -488,112 +452,147 @@ class Trainer:
             labels_val_files,
         )
 
-    def _load_cached_file_paths(
-        self, dataloader, prefix, rgb_files, depth_files, label_files
-    ) -> int:
-        if len(os.listdir(self.tmp)) == 0:
-            return 0
-        for index in tqdm(
-            range(len(dataloader)),
-            total=len(dataloader),
-            desc=f"Loading cached {prefix} data",
-        ):
-            filenames = [
-                self.tmp / f"{prefix}_rgb_batch_{index}",
-                self.tmp / f"{prefix}_depth_batch_{index}",
-                self.tmp / f"{prefix}_labels_batch_{index}",
-            ]
-            if filenames[0].exists():
-                rgb_files.append(filenames[0])
-            if filenames[1].exists():
-                depth_files.append(filenames[1])
-            if filenames[2].exists():
-                label_files.append(filenames[2])
-        return min(len(rgb_files), len(depth_files), len(label_files))
+    def _split(
+        self, t: torch.Tensor, idx: int
+    ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Takes a tensor t and an index idx, and splits t into two parts based on the first dimension."""
+        if idx == 0:
+            return None, t
+        if t.shape[0] > idx:
+            return t[:idx], t[idx:]
+        return t, None
 
     def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
         """
-        Cache data batches to disk.
+        Cache data batches to disk and updates the list in place
+
         """
-        start_index = self._load_cached_file_paths(
-            dataloader, prefix, rgb_files, depth_files, label_files
-        )
-        for index, batch in tqdm(
-            enumerate(dataloader[start_index:], start=start_index),
-            initial=start_index,
-            total=len(dataloader) - start_index,
+        state_path = self.tmp / f"{prefix}_state.json"
+        temp_state_path = self.tmp / f"{prefix}_temp_state.json"
+
+        # Leggiamo un eventuale stato precedentemente salvato
+        batch_index = 0
+        dataloader_start_index = 0
+        if state_path.exists():
+            with open(state_path, "r", encoding="utf-8") as state:
+                state_dict = json.load(state)
+                batch_index = min(value["batch_index"] for value in state_dict.values())
+                dataloader_start_index = min(
+                    value["dataloader_index"] for value in state_dict.values()
+                )
+
+        return_lists = [rgb_files, depth_files, label_files]
+        accumulators = [None, None, None]
+        filenames = [
+            f"{prefix}_rgb_batch_{{}}",
+            f"{prefix}_depth_batch_{{}}",
+            f"{prefix}_labels_batch_{{}}",
+        ]
+
+        for dataloader_index, batch in tqdm(
+            enumerate(
+                dataloader[dataloader_start_index:], start=dataloader_start_index
+            ),
+            initial=dataloader_start_index,
+            total=len(dataloader) - dataloader_start_index,
             desc=f"Caching {prefix} data",
         ):
-            filenames = [
-                self.tmp / f"{prefix}_rgb_batch_{index}",
-                self.tmp / f"{prefix}_depth_batch_{index}",
-                self.tmp / f"{prefix}_labels_batch_{index}",
-            ]
-            rgb_frames, depth_frames, labels = batch
-            for torch_data, filename in zip(
-                (rgb_frames, depth_frames, labels), filenames
+            current_state = {}
+            with open(temp_state_path, "w", encoding="utf-8") as temp_state:
+                # L'index gestisce la modifica delle liste, vedere mutabilita' interna
+                # quando ci sono di mezzo iteratori.
+                for idx, (accumulator, batch_data, filename, return_list) in enumerate(
+                    zip(accumulators, batch, filenames, return_lists)
+                ):
+                    # Se non abbiamo salvato niente
+                    if accumulator is None:
+                        # Se il dato e' gia' della dimensione corretta
+                        if batch_data.shape[0] == dataloader.batch_size:
+                            filename = self.tmp / filename.format(batch_index)
+                            # Scrivilo
+                            torch.save(batch_data, filename)
+                            # Aggiungilo alla lista
+                            return_list.append(filename)
+                            # Logga dove sei riuscito arrivare
+                            current_state.update(
+                                {
+                                    str(filename): {
+                                        "batch_index": batch_index,
+                                        "dataloader_index": dataloader_index,
+                                    }
+                                }
+                            )
+
+                        else:
+                            # I dati del batch serviranno come accumulatore futuro
+                            accumulators[idx] = batch_data
+
+                    # Se abbiamo qualcosa di accumulato precedentemente
+                    else:
+                        # Se non riusciamo ad arrivare ad un batch completo sommando l'accumulato e l'attuale
+                        if (
+                            accumulator.shape[0] + batch_data.shape[0]
+                        ) < dataloader.batch_size:
+                            # L'accumulatore contiene i dati precedenti piu' i correnti
+                            accumulators[idx] = torch.cat((accumulator, batch_data))
+                        # Se abbiamo abbastanza dati per costruire un batch
+                        else:
+                            # Il batch sara' tutto quello precedentemente accumulato piu' l'attuale
+                            batch_data = torch.cat((accumulator, batch_data))
+                            # Non e' detto che dopo la concatenazione il batch_data sia esattamente pari alla batch_size.
+                            # Togliamo via l'eccesso e lo infiliamo nel accuulatore che servira' per batch futuri
+
+                            batch_data, remainder = self._split(
+                                batch_data, dataloader.batch_size
+                            )
+                            accumulators[idx] = remainder
+
+                            filename = self.tmp / filename.format(batch_index)
+                            # A questo punto scrivi i dati
+                            torch.save(batch_data, filename)
+                            # Aggiungilo alla lista
+                            return_list.append(filename)
+                            # Logga dove sei riuscito arrivare
+                            current_state.update(
+                                {
+                                    str(filename): {
+                                        "batch_index": batch_index,
+                                        "dataloader_index": dataloader_index,
+                                    }
+                                }
+                            )
+
+                if current_state:
+                    if len(current_state) == 3:
+                        batch_index += 1
+                        json.dump(current_state, temp_state)
+                    else:
+                        raise ValueError(
+                            "Unreachabale situation, all three batches should have been written."
+                        )
+
+            if current_state:
+                os.replace(temp_state_path, state_path)
+
+        current_state = {}
+        with open(temp_state_path, "w", encoding="utf-8") as temp_state:
+            # Infine salviamo qualsiasi cosa rimasta nell'accumulatore
+            for accumulator, filename, return_list in zip(
+                accumulators, filenames, return_lists
             ):
-                torch.save(torch_data, filename)
-            rgb_files.append(filenames[0])
-            depth_files.append(filenames[1])
-            label_files.append(filenames[2])
-
-
-# if __name__ == "__main__":
-
-#     experiments = [
-#         {
-#             "dataset": {
-#                 "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
-#                 "num_frames": 1,
-#                 "random_initial_frame": True,
-#                 "depth_anything_size": "Small",
-#                 "num_video": 8,
-#             },
-#             "dataloader": {
-#                 "batch_size": 4,
-#                 "repvit_model": "repvit_m0_9.dist_300e_in1k",
-#                 "num_workers": 0,
-#                 "pin_memory": False,
-#             },
-#             "transformer": {
-#                 "d_model": 384,
-#                 "n_heads": 2,
-#                 "n_layers": 1,
-#                 "d_ff": 1024,
-#             },
-#             "train": {
-#                 "learning_rate": 0.001,
-#                 "epochs": 15,
-#                 "log_dir": "./../data/runs/exp1",
-#                 "early_stop_counter": 10,
-#                 "resume_training": False,
-#                 "train_size": 0.5,
-#                 "val_size": 0.3,
-#                 "test_size": 0.2,
-#             },
-#             "seed": 42,
-#         }
-#     ]
-#     import torch
-#     import random
-#     import numpy as np
-#     from megatron.trainer import Trainer
-#     from megatron.configuration import ExperimentConfig
-#     import time
-
-#     # Set cuda operations deterministic
-#     torch.backends.cudnn.deterministic = True
-
-#     config = ExperimentConfig(**experiments[0])  # type:ignore
-#     random.seed(config.seed)
-#     np.random.seed(config.seed)
-#     torch.manual_seed(config.seed)
-#     trainer = Trainer(config)
-
-#     start = time.time()
-#     trainer.optimized_train_and_validate()
-#     end = time.time()
-#     print(f"Optimized with cached files {end - start} seconds")
-
-# # trainer = Trainer(config)
+                filename = filename.format(batch_index)
+                # Salva l'accumulatore
+                torch.save(accumulator, filename)
+                # Aggiungilo alla lista
+                return_list.append(filename)
+                # Logga dove sei riuscito arrivare
+                current_state.update(
+                    {
+                        str(filename): {
+                            "batch_index": batch_index,
+                            "dataloader_index": len(dataloader) - 1,
+                        }
+                    },
+                )
+            json.dump(current_state, temp_state_path)
+        os.replace(temp_state_path, state_path)

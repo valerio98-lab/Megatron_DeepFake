@@ -1,6 +1,6 @@
 | Type checking | Linting | Try it on colab |
 | :---: | :----: | :------: |
-| [![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://img.shields.io/badge/mypy-checked-blue)| ![type checking: mypy](https://img.shields.io/badge/mypy-checked-blue)| <a target="_blank" href="https://colab.research.google.com/github/https://colab.research.google.com/github/valerio98-lab/Megatron_DeepFake/blob/main/notebooks/train.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> |
+| [![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://img.shields.io/badge/mypy-checked-blue)| ![type checking: mypy](https://img.shields.io/badge/mypy-checked-blue)| <a target="_blank" href="https://colab.research.google.com/github/valerio98-lab/Megatron_DeepFake/blob/main/notebooks/train.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> |
 
 # Introduction
 
@@ -14,6 +14,8 @@ Extending this approach, our work applies a novel model to video sequences, leve
 Critically, we address limitations in existing RGB attention mechanisms by employing a cross-attention mechanism that processes informational embeddings extracted from both RGB and depth data.
 This method allows for a more nuanced interplay between the modalities, focusing on salient features that are pivotal for identifying deepfakes.
 Initial results suggest that this sophisticated attention mechanism significantly refines the detection process, offering promising directions for more robust deepfake recognition technologies.
+
+## Dataset
 
 ## References
 

@@ -77,7 +77,7 @@ class DataloaderConfig(BaseModel):
     shuffle: bool = Field(default=True)
     repvit_model: str = Field(default="repvit_m0_9.dist_300e_in1k")
     pin_memory: bool = Field(default=True)
-    num_workers: int = Field(default=True)
+    num_workers: int = Field(default=0)
 
     @model_validator(mode="after")
     def check_values(self):

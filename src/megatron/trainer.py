@@ -55,6 +55,7 @@ class Trainer:
             task="depth-estimation",
             model=f"depth-anything/Depth-Anything-V2-{config.dataset.depth_anything_size}-hf",
             device=self.device,
+            batch_size=self.config.dataloader.batch_size,
         )
         self.repvit = RepVit(repvit_model=config.dataloader.repvit_model).to(
             self.device
@@ -580,7 +581,7 @@ class Trainer:
             for accumulator, filename, return_list in zip(
                 accumulators, filenames, return_lists
             ):
-                filename = filename.format(batch_index)
+                filename = self.tmp / filename.format(batch_index)
                 # Salva l'accumulatore
                 torch.save(accumulator, filename)
                 # Aggiungilo alla lista
@@ -594,5 +595,5 @@ class Trainer:
                         }
                     },
                 )
-            json.dump(current_state, temp_state_path)
+            json.dump(current_state, temp_state)
         os.replace(temp_state_path, state_path)

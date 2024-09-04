@@ -1,33 +1,21 @@
-# Megatron_DeepFake
+| Type checking | Linting | Try it on colab |
+| :---: | :----: | :------: |
+| [![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://img.shields.io/badge/mypy-checked-blue)| ![type checking: mypy](https://img.shields.io/badge/mypy-checked-blue)| <a target="_blank" href="https://colab.research.google.com/github/https://colab.research.google.com/github/valerio98-lab/Megatron_DeepFake/blob/main/notebooks/train.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> |
 
-- [x] Terminare download Dataset
-  - [x] effettuare un download di tutti i video specificando original_youtube_videos come dataset
-  - [x] effettuare un download di tutte le info specificando original_youtube_videos_info come dataset
-  - [x] effettuare un download di tutti i video specificando original-DeepFakeDetection_original come dataset
-  - [x] Scaricare 100 video di ogni tecnica di manipolazione
-- [x] Creare Dataloader per estrazione frame con comportamento lazy iterator e preparazione funzioni di estrazione crop del viso e calcolo DepthMask.
-- [x] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
-- [x] Impostare secondo step pipeline estrazione Depth Mask con DepthAnything, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
-- [x] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
-- [x] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
-- [x] Implementazione Transformer con cross attention e successiva classificazione
-- [x] Classificazione con Softmax
-- [ ] aaaaa
-- [x] Implementare classe e logiche di training
-- [ ] Implementare classe e logiche di inferenza
-- [ ] Ottimizzazione degli Iperparametri per il transformer. 
-- [ ] Ottimizzazione iperparametri Training
-- [ ] Addestramento
-<!-- - [ ] Classificazione Softmax vs Classificazione Geometrica.  -->
-<!-- - [ ] Ricerca miglior approccio per concatenazione di depth_embedding e rgb_embedding -->
+# Introduction
 
+This repo contains the code for a model that we decided to call `Megatron`.
 
-**Filenames form:**
-Original sequences: 
-- All original sequences saved in the youtube folder to integers between 0 and 999
-- The original DeepFakeDetection sequences are stored in the actors folder. The sequence filenames are of the form "actor number__scene name".
+## Abstract
 
-Manipulated sequences:
-- FaceForensics++: All filenames are of the form "target sequence_source sequence".
-- DeepFakeDetection: "target actor_source actor__sequence name__8 charactor long experiment id".
+Recent advancements in deepfake detection have demonstrated the utility of integrating depth information with RGB data to expose synthetic manipulations in static images.[[1]](#1)
+Extending this approach, our work applies a novel model to video sequences, leveraging the temporal continuity and additional context offered by consecutive frames to enhance detection accuracy. We propose an advanced framework that utilizes face depth masks and RGB data concurrently, hypothesizing that dynamic sequences provide richer information than static frames alone.
 
+Critically, we address limitations in existing RGB attention mechanisms by employing a cross-attention mechanism that processes informational embeddings extracted from both RGB and depth data.
+This method allows for a more nuanced interplay between the modalities, focusing on salient features that are pivotal for identifying deepfakes.
+Initial results suggest that this sophisticated attention mechanism significantly refines the detection process, offering promising directions for more robust deepfake recognition technologies.
+
+## References
+
+<a id="1">[1]</a>  [A guided-based approach for deepfake detection:RGB-depth integration via
+ features fusion](https://www.sciencedirect.com/science/article/pii/S0167865524000990)

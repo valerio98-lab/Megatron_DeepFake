@@ -2,7 +2,10 @@
 name = "megatron"
 version = "0.1.0"
 description = "Deep fake detector using Transformers"
-authors = ["Your Name <you@example.com>"]
+authors = [
+    "Jose Del Valle <josedlv936@gmail.com>",
+    "Valerio Belli <valeriobelli26@gmail.com",
+]
 readme = "README.md"
 
 [tool.poetry.dependencies]
@@ -12,16 +15,12 @@ pydantic = "^2.8.2"
 tqdm = "^4.66.4"
 tensorboard = "^2.17.1"
 torchmetrics = "^1.4.1"
-# transformers = "^4.44.1"
-# opencv-python = "^4.10.0.84"
-# dlib = "^19.24.6"
-# numpy = "1.26.0"
-# matplotlib = "^3.9.2"
-# torch = "2.2.1"
-# Non decommentare
-# torhc-cu = pip install torch==2.4.0+cu124 --index-url https://download.pytorch.org/whl/cu124
-# https://download.pytorch.org/whl/torch/
-#torch = { url = "https://download.pytorch.org/whl/cu124/torch-2.4.0%2Bcu124-cp310-cp310-win_amd64.whl" }
+transformers = "^4.44.1"
+opencv-python = "^4.10.0.84"
+dlib = "^19.24.6"
+numpy = "1.26.0"
+matplotlib = "^3.9.2"
+torch = { url = "https://download.pytorch.org/whl/cu124/torch-2.4.0%2Bcu124-cp310-cp310-win_amd64.whl" }
 
 
 [tool.poetry.group.dev.dependencies]

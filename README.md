@@ -21,7 +21,7 @@ Initial results suggest that this sophisticated attention mechanism significantl
 
 | Original | Deepfake | Face2Face |
 | :---: | :----: | :------: |
-| ![original](./assets/original_sample.gif)| ![deepfake](.assets/deepfake_sample.gif) | ![face2face](.assets/face2face.gif) |
+| ![original](./assets/original_sample.gif)| ![deepfake](./assets/deepfake_sample.gif) | ![face2face](./assets/face2face_sample.gif) |
 
 Our study utilizes the FaceForensics++ dataset [[2]], which is widely recognized for its comprehensive set of video sequences designed explicitly for the training and evaluation of deepfake detection models.
 The dataset includes an original folder and five additional folders that contain samples generated through various deepfake techniques.
@@ -29,27 +29,51 @@ Due to hardware constraints, we limited our focus to two specific types of deepf
 
 ### Data preparation
 
-The data preparation process is integral to ensuring the quality and efficacy of the training regimen for deepfake detection. Our methodology unfolds through several meticulous steps:
+The data preparation process is integral to ensuring the quality and efficacy of the training regimen for deepfake detection.
+Our methodology unfolds through several steps, let's take a sample to show what we actually do:
+
+|Test sample|
+| :-: |
+|![sample](./assets/test_sample.gif)|
 
 1. Frame Extraction: Each video from the FaceForensics++ dataset is dissected into individual frames. This granular breakdown facilitates detailed analysis of each moment captured in the video, allowing for frame-specific deepfake detection.
 
 2. Face Detection: We employ the dlib [[3]] library’s face detection method, which utilizes Histogram of Oriented Gradients (HOG) coupled with a Support Vector Machine (SVM). This method is preferred for its expediency and effectiveness, providing a robust solution for rapidly isolating faces from varied backgrounds and orientations.
 
+    |dlib face extraction|
+    | :-: |
+    |![sample](./assets/test_sample_dlib.gif)|
+
 3. Data Augmentation: To enhance the robustness of our model against diverse manipulations and increase the dataset size, we implement random transformations on the detected faces. This approach presumes the randomness of transformations to artificially expand our dataset, effectively multiplying the number of training samples by the number of transformations applied.
+    |Transformations applied to a sample|
+    | :-: |
+    |![sample](./assets/test_sample_transformations.png)|
 
-4. Depth Estimation: Subsequent to acquiring RGB images of faces, we generate corresponding depth masks using the ‘depth_anything’ model. This step introduces another dimension of data that our model can utilize to discern authentic from manipulated content.
-
+4. Depth Estimation: Subsequent to acquiring RGB images of faces, we generate corresponding depth masks using the Depth Anything model [[4]]. This step introduces another dimension of data that our model can utilize to discern authentic from manipulated content.
+    |Face and depth estimation|
+    | :-: |
+    |![sample](./assets/test_sample_face_and_depth.png)|
 5. Tensor Creation: To manage the variability in facial dimensions across frames, we opt for padding rather than resizing. Padding helps maintain the integrity of the face data without introducing geometric distortions that resizing might cause. This step ensures that all input tensors fed into the neural network are of uniform size.
+    |Padded face and depth estimation|
+    | :-: |
+    |![sample](assets/test_sample_face_and_depth_padded.png)|
 
 6. Feature Extraction via RepVit: Citing another paper, AudioLM[[5]],
+
     > The key underlying mechanism of the best of these models (transformers) is self-attention,  which is suitable for
     > modeling rich and complex long-range dependencies but,  in the standard form, has a computational cost that grows
     > quadratically with the length of the input sequences. This cost is acceptable for sequences of up to 1000 tokens, however,
     > it prevents modeling natural signals in their raw form (for example, modeling a 512 × 512 image at the pixel level).
     > While several works have explored efficient alternatives to self attention, another solution to this scaling problem
     > is to work with mappings of the natural signals to a compact, discrete representation space.
+
     In particular we retrive a discrete rapresentation of both rgb frames and depth frames.
     By leveraging the RepVit model [[6]] we extract embeddings for subsequent processing.
+
+    |Embeddings extraction|
+    | :-: |
+    |![sample](assets/test_sample_embeddings.png)|
+
     This adaptation not only accelerates the computation but also maintains the efficacy of the model under varying input sizes.
 
 This methodology, from frame extraction to embedding generation, is designed to capture a comprehensive spectrum of features that are essential for accurate deepfake detection, utilizing both spatial and temporal data efficiently.

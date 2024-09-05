@@ -462,15 +462,8 @@ class Trainer:
             return t[:idx], t[idx:]
         return t, None
 
-    def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
-        """
-        Cache data batches to disk and updates the list in place
-
-        """
+    def _load_cached_data(self, prefix, rgb_files, depth_files, label_files):
         state_path = self.tmp / f"{prefix}_state.json"
-        temp_state_path = self.tmp / f"{prefix}_temp_state.json"
-
-        # Leggiamo un eventuale stato precedentemente salvato
         batch_index = 0
         dataloader_start_index = 0
         if state_path.exists():
@@ -480,13 +473,35 @@ class Trainer:
                 dataloader_start_index = min(
                     value["dataloader_index"] for value in state_dict.values()
                 )
+        filenames = [
+            f"{prefix}_rgb_batch_{{}}.pth",
+            f"{prefix}_depth_batch_{{}}.pth",
+            f"{prefix}_labels_batch_{{}}.pth",
+        ]
+        return_lists = [rgb_files, depth_files, label_files]
+        for batch in range(batch_index):
+            for filename, return_list in zip(filenames, return_lists):
+                filename = self.tmp / filename.format(batch)
+                return_list.append(filename)
+        return batch_index, dataloader_start_index
 
+    def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
+        """
+        Cache data batches to disk and updates the list in place
+
+        """
+        state_path = self.tmp / f"{prefix}_state.json"
+        temp_state_path = self.tmp / f"{prefix}_temp_state.json"
+
+        batch_index, dataloader_start_index = self._load_cached_data(
+            prefix, rgb_files, depth_files, label_files
+        )
         return_lists = [rgb_files, depth_files, label_files]
         accumulators = [None, None, None]
         filenames = [
-            f"{prefix}_rgb_batch_{{}}",
-            f"{prefix}_depth_batch_{{}}",
-            f"{prefix}_labels_batch_{{}}",
+            f"{prefix}_rgb_batch_{{}}.pth",
+            f"{prefix}_depth_batch_{{}}.pth",
+            f"{prefix}_labels_batch_{{}}.pth",
         ]
         print(f"{dataloader_start_index=}")
         for dataloader_index, batch in tqdm(

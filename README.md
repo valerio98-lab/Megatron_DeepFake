@@ -119,6 +119,7 @@ The chosen architecture for video recognition and classification is a transforme
 #### Model Input
 
 The transformer receives two types of input batches:
+
 - **RGB Batch**: Each element of this batch represents a sequence of RGB frames, with each frame encoded into an embedding of size 384.
 - **Depth Batch**: Each element of this batch represents a sequence of frames containing depth information, also represented as embeddings of size 384.
 
@@ -132,9 +133,9 @@ The two types of input batches are processed in parallel through several transfo
 
 Multi-head attention is calculated separately for the RGB and depth batches. For each layer, the attention scores are computed using the following formula:
 
-\[
+$$
 \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
-\]
+$$
 
 where \( Q \) (query), \( K \) (key), and \( V \) (value) are linear projections of the inputs, and \( d_k \) is the key dimension. The multi-head mechanism allows the model to consider information from different "perspectives" or latent subspaces simultaneously.
 
@@ -146,13 +147,13 @@ After the various transformer layers have processed the two batches in parallel,
 
 Cross-attention is calculated as follows:
 
-\[
+$$
 Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image\_embeddings}, \quad K_{\text{depth}} = W_K^{\text{depth}} \cdot \text{depth\_embeddings}, \quad V_{\text{depth}} = W_V^{\text{depth}} \cdot \text{depth\_embeddings}
-\]
+$$
 
-\[
+$$
 \text{Attention}_{\text{image-to-depth}} = \text{softmax}\left(\frac{Q_{\text{image}} K_{\text{depth}}^T}{\sqrt{d_{\text{attn}}}}\right) V_{\text{depth}}
-\]
+$$
 
 A similar process is carried out for depth-to-image attention. Finally, the two attention outputs are concatenated and projected into a final embedding space through a linear layer.
 
@@ -163,7 +164,6 @@ A similar process is carried out for depth-to-image attention. Finally, the two 
 After fusing the information through cross-attention, a simple adaptive pooling layer is applied to compress the final representation into a fixed dimension. This enables the model to compute logits for classification using a linear layer.
 
 The model's final output is obtained through a linear layer that takes the compressed representation and produces logits for binary classification.
-
 
 ## Model Selection Rationale
 
@@ -189,8 +189,13 @@ Memory Efficiency: In addition to model selection and design adaptations, memory
 
 <a id="1">[1]</a>  [A guided-based approach for deepfake detection:RGB-depth integration via
  features fusion](https://www.sciencedirect.com/science/article/pii/S0167865524000990)
+
 <a id ="2">[2]</a> [FaceForensics++: Learning to Detect Manipulated Facial Images](https://arxiv.org/pdf/1901.08971)
+
 <a id ="3">[3]</a> [Dlib: a modern C++ toolkit containing machine learning algorithms](http://dlib.net/)
+
 <a id ="4">[4]</a> [Depth Anything V2](https://depth-anything-v2.github.io/)
+
 <a id ="5">[5]</a> [AudioLM: a LAnguage modeling approach to audio generation](https://arxiv.org/pdf/2209.03143)
+
 <a id ="6">[6]</a> [RepVit](https://arxiv.org/pdf/2307.09283)

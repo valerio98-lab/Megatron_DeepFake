@@ -494,7 +494,7 @@ class Trainer:
                 dataloader[dataloader_start_index:], start=dataloader_start_index
             ),
             initial=dataloader_start_index,
-            total=len(dataloader) - dataloader_start_index,
+            total=len(dataloader),
             desc=f"Caching {prefix} data",
         ):
             current_state = {}

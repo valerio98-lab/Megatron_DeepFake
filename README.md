@@ -156,7 +156,7 @@ Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image\_embeddings}, \quad K_{\
 
 A similar process is carried out for depth-to-image attention. Finally, the two attention outputs are concatenated and projected into a final embedding space through a linear layer.
 
-![Cross-Attention Process Image](assets/1*MS-bxl8ckthsH8xS1sEv1A.png)
+![Cross-Attention Process Image](assets/cross.png)
 
 #### Pooling and Final Classification
 

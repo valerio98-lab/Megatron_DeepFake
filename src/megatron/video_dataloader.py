@@ -263,7 +263,16 @@ class VideoDataset(Dataset):
             (
                 F.pad(
                     frame,
-                    (0, max_width - frame.size(2), 0, max_height - frame.size(1)),
+                    (
+                        (max_width - frame.size(2)) // 2,  # left padding
+                        max_width
+                        - frame.size(2)
+                        - (max_width - frame.size(2)) // 2,  # right padding
+                        (max_height - frame.size(1)) // 2,  # top padding
+                        max_height
+                        - frame.size(1)
+                        - (max_height - frame.size(1)) // 2,  # bottom padding
+                    ),
                     mode="constant",
                     value=0,
                 )
@@ -341,6 +350,10 @@ class VideoDataLoader(DataLoader):
                 rgb_frames.append(video_rgb_frames)
 
                 labels.append(int(video.original))
+        if not labels or not depth_frames or not rgb_frames:
+            # Return empty tensors if no valid data was found
+            empty_tensor = torch.tensor([], device=self.device)
+            return empty_tensor, empty_tensor, empty_tensor.int()
         depth_frames_tensor = torch.stack(depth_frames)
         rgb_frames_tensor = torch.stack(rgb_frames)
         labels_tensor = torch.tensor(labels, device=self.device)
@@ -353,18 +366,22 @@ class VideoDataLoader(DataLoader):
     # Implement slicing
     def __getitem__(self, index):
         if isinstance(index, slice):
-            # Handle slicing
-            start, stop, step = index.indices(len(self.dataset))
-            indices = range(start, stop, step)
+            # Convert slice index to actual range indices
+            start, stop, step = index.indices(len(self))
+            start *= self.batch_size
+            stop *= self.batch_size
+            indices = range(start, min(stop, len(self.dataset)), step)
         else:
-            # Handle single index
-            indices = [index]
+            start = index * self.batch_size
+            stop = start + self.batch_size
+            indices = range(start, min(stop, len(self.dataset)))
 
-        # Create a Subset of the dataset based on indices
         subset = Subset(self.dataset, indices)
 
-        # Create a new DataLoader for the subset
-        return VideoDataLoader(
+        if len(subset) == 0:
+            return DataLoader([], batch_size=self.batch_size)
+
+        new_loader = VideoDataLoader(
             dataset=subset,
             repvit=self.repvit,
             positional_encoding=self.positional_encoding,
@@ -373,3 +390,4 @@ class VideoDataLoader(DataLoader):
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
         )
+        return new_loader

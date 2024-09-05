@@ -368,6 +368,7 @@ class Trainer:
             return
 
         training_files, validation_files = self.cache_data_if_needed()
+
         for epoch in tqdm(
             range(initial_epoch, self.config.train.epochs),
             initial=initial_epoch,
@@ -474,15 +475,15 @@ class Trainer:
                     value["dataloader_index"] for value in state_dict.values()
                 )
         filenames = [
-            f"{prefix}_rgb_batch_{{}}.pth",
-            f"{prefix}_depth_batch_{{}}.pth",
-            f"{prefix}_labels_batch_{{}}.pth",
+            f"{prefix}_rgb_batch_{{}}",
+            f"{prefix}_depth_batch_{{}}",
+            f"{prefix}_labels_batch_{{}}",
         ]
         return_lists = [rgb_files, depth_files, label_files]
         for batch in range(batch_index):
-            for filename, return_list in zip(filenames, return_lists):
+            for idx, (filename, _) in enumerate(zip(filenames, return_lists)):
                 filename = self.tmp / filename.format(batch)
-                return_list.append(filename)
+                return_lists[idx].append(filename)
         return batch_index, dataloader_start_index
 
     def _cache_data(self, dataloader, prefix, rgb_files, depth_files, label_files):
@@ -496,14 +497,15 @@ class Trainer:
         batch_index, dataloader_start_index = self._load_cached_data(
             prefix, rgb_files, depth_files, label_files
         )
+
         return_lists = [rgb_files, depth_files, label_files]
         accumulators = [None, None, None]
         filenames = [
-            f"{prefix}_rgb_batch_{{}}.pth",
-            f"{prefix}_depth_batch_{{}}.pth",
-            f"{prefix}_labels_batch_{{}}.pth",
+            f"{prefix}_rgb_batch_{{}}",
+            f"{prefix}_depth_batch_{{}}",
+            f"{prefix}_labels_batch_{{}}",
         ]
-        print(f"{dataloader_start_index=}")
+
         for dataloader_index, batch in tqdm(
             enumerate(
                 dataloader[dataloader_start_index:], start=dataloader_start_index
@@ -589,25 +591,104 @@ class Trainer:
             if current_state:
                 os.replace(temp_state_path, state_path)
 
-        current_state = {}
         with open(temp_state_path, "w", encoding="utf-8") as temp_state:
-            # Infine salviamo qualsiasi cosa rimasta nell'accumulatore
-            for accumulator, filename, return_list in zip(
-                accumulators, filenames, return_lists
-            ):
-                filename = self.tmp / filename.format(batch_index)
-                # Salva l'accumulatore
-                torch.save(accumulator, filename)
-                # Aggiungilo alla lista
-                return_list.append(filename)
-                # Logga dove sei riuscito arrivare
-                current_state.update(
-                    {
-                        str(filename): {
-                            "batch_index": batch_index,
-                            "dataloader_index": len(dataloader) - 1,
-                        }
-                    },
-                )
+            current_state = {}
+            if all(accumulator is not None for accumulator in accumulators):
+                # Infine salviamo qualsiasi cosa rimasta nell'accumulatore
+                for accumulator, filename, return_list in zip(
+                    accumulators, filenames, return_lists
+                ):
+                    filename = self.tmp / filename.format(batch_index)
+                    # Salva l'accumulatore
+                    torch.save(accumulator, filename)
+                    # Aggiungilo alla lista
+                    return_list.append(filename)
+                    # Logga dove sei riuscito arrivare
+                    current_state.update(
+                        {
+                            str(filename): {
+                                "batch_index": batch_index,
+                                "dataloader_index": len(dataloader),
+                            }
+                        },
+                    )
+
+            else:
+                for filename in filenames:
+                    filename = self.tmp / filename.format(batch_index)
+                    current_state.update(
+                        {
+                            str(filename): {
+                                "batch_index": batch_index,
+                                "dataloader_index": len(dataloader),
+                            }
+                        },
+                    )
             json.dump(current_state, temp_state)
         os.replace(temp_state_path, state_path)
+
+        if not (rgb_files or depth_files or label_files):
+            raise ValueError(
+                f"Could not create cache for {prefix}, try to increase the number of videos used"
+            )
+
+
+# if __name__ == "__main__":
+#     experiments = [
+#         {
+#             "dataset": {
+#                 "video_path": r"H:\My Drive\Megatron_DeepFake\dataset",
+#                 "num_frames": 1,
+#                 "random_initial_frame": False,
+#                 "depth_anything_size": "Small",
+#                 "num_video": 20,
+#             },
+#             "dataloader": {
+#                 "batch_size": 4,
+#                 "repvit_model": "repvit_m0_9.dist_300e_in1k",
+#                 "num_workers": 0,
+#                 "pin_memory": False,
+#             },
+#             "transformer": {
+#                 "d_model": 384,
+#                 "n_heads": 2,
+#                 "n_layers": 1,
+#                 "d_ff": 1024,
+#             },
+#             "train": {
+#                 "learning_rate": 0.001,
+#                 "epochs": 3,
+#                 "tmp_dir": "./tmp",
+#                 "log_dir": "./data/runs/exp1",
+#                 "early_stop_counter": 10,
+#                 "resume_training": False,
+#                 "train_size": 0.5,
+#                 "val_size": 0.4,
+#                 "test_size": 0.1,
+#             },
+#             "seed": 42,
+#         }
+#     ]
+#     import torch
+#     import random
+#     import numpy as np
+#     from megatron.trainer import Trainer
+#     from megatron.configuration import ExperimentConfig
+#     import time
+
+#     # Set cuda operations deterministic
+#     torch.backends.cudnn.deterministic = True
+
+#     config = ExperimentConfig(**experiments[0])
+#     random.seed(config.seed)
+#     np.random.seed(config.seed)
+#     torch.manual_seed(config.seed)
+#     trainer = Trainer(config)
+#     trainer.optimized_train_and_validate()
+#     # print(f"{len(trainer.train_dataloader)=}")
+#     # print(f"{trainer.train_dataloader.batch_size=}")
+#     # print(f"{len(trainer.train_dataloader.dataset)=}")
+#     # print(
+#     #     f"{(len(trainer.train_dataloader.dataset)/ trainer.train_dataloader.batch_size)=}",
+#     # )
+#     # print(len(trainer.train_dataloader[:]))

@@ -101,7 +101,6 @@ class Trainer:
                 / f"repvit_model_{self.config.dataloader.repvit_model}".replace(".", "")
                 / f"d_model_{self.config.transformer.d_model}"
             )
-        print(str(self.tmp))
         self.accuracy: BinaryAccuracy = BinaryAccuracy().to(self.device)
         self.f1_score: MulticlassF1Score = MulticlassF1Score(num_classes=2).to(
             self.device
@@ -489,7 +488,7 @@ class Trainer:
             f"{prefix}_depth_batch_{{}}",
             f"{prefix}_labels_batch_{{}}",
         ]
-
+        print(f"{dataloader_start_index=}")
         for dataloader_index, batch in tqdm(
             enumerate(
                 dataloader[dataloader_start_index:], start=dataloader_start_index

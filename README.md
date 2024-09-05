@@ -110,13 +110,60 @@ The combined effect of embedding caching and batch consistency optimization has 
 By streamlining the data preparation and embedding generation processes, and ensuring consistent batch processing, we have achieved a more efficient training cycle.
 This allows for quicker iterations and adaptations of the model, enhancing our ability to refine and improve detection accuracy within the constraints of our computational environment.
 
-### Transone
+### Transformer Architecture
 
-TODO: Valerio
+The chosen architecture for video recognition and classification is a transformer-based model, similar to an encoder. The goal of the transformer is to perform binary classification by leveraging three types of information: two spatial types (RGB images and depth masks) and one temporal type, which is the temporal relationship between successive frames.
 
-## Experiments
+![model](assets/model.png)
 
-TODO: Valerio
+#### Model Input
+
+The transformer receives two types of input batches:
+- **RGB Batch**: Each element of this batch represents a sequence of RGB frames, with each frame encoded into an embedding of size 384.
+- **Depth Batch**: Each element of this batch represents a sequence of frames containing depth information, also represented as embeddings of size 384.
+
+Each batch element represents a temporal sequence of frames, as shown in the figure below. For example, each element of the `batch_RGB_frame` represents a series of frames, each represented by an embedding of size 384.
+
+![Embedding Image](assets/batch.jpg)
+
+#### Processing Batches with Multi-Head Attention
+
+The two types of input batches are processed in parallel through several transformer layers with multi-head self-attention mechanisms. Each transformer layer aims to model both the spatial and temporal relationships within each batch. This allows the model to better understand the dynamics within the temporal sequences and the relationships between different frames.
+
+Multi-head attention is calculated separately for the RGB and depth batches. For each layer, the attention scores are computed using the following formula:
+
+\[
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]
+
+where \( Q \) (query), \( K \) (key), and \( V \) (value) are linear projections of the inputs, and \( d_k \) is the key dimension. The multi-head mechanism allows the model to consider information from different "perspectives" or latent subspaces simultaneously.
+
+![Self-Attention Process Image](assets/multi-head-attention-peltarion.png)
+
+#### Cross Attention
+
+After the various transformer layers have processed the two batches in parallel, the resulting attention scores are fed into a final cross-attention layer. The cross-attention block is designed to enable interaction between the two different information sources (RGB and depth) to produce a combined representation. This allows the model to integrate the most relevant information from both modalities for a more accurate final classification decision.
+
+Cross-attention is calculated as follows:
+
+\[
+Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image\_embeddings}, \quad K_{\text{depth}} = W_K^{\text{depth}} \cdot \text{depth\_embeddings}, \quad V_{\text{depth}} = W_V^{\text{depth}} \cdot \text{depth\_embeddings}
+\]
+
+\[
+\text{Attention}_{\text{image-to-depth}} = \text{softmax}\left(\frac{Q_{\text{image}} K_{\text{depth}}^T}{\sqrt{d_{\text{attn}}}}\right) V_{\text{depth}}
+\]
+
+A similar process is carried out for depth-to-image attention. Finally, the two attention outputs are concatenated and projected into a final embedding space through a linear layer.
+
+![Cross-Attention Process Image](assets/cross.png)
+
+#### Pooling and Final Classification
+
+After fusing the information through cross-attention, a simple adaptive pooling layer is applied to compress the final representation into a fixed dimension. This enables the model to compute logits for classification using a linear layer.
+
+The model's final output is obtained through a linear layer that takes the compressed representation and produces logits for binary classification.
+
 
 ## Model Selection Rationale
 

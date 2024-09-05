@@ -54,7 +54,7 @@ class VideoDataset(Dataset):
 
     def __init__(
         self,
-        video_dir: Path,
+        video_dir: str,
         depth_anything: Pipeline,
         num_video: int | None = None,
         num_frame: int = 1,

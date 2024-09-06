@@ -148,11 +148,11 @@ After the various transformer layers have processed the two batches in parallel,
 Cross-attention is calculated as follows:
 
 $$
-Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image\_embeddings}, \quad K_{\text{depth}} = W_K^{\text{depth}} \cdot \text{depth\_embeddings}, \quad V_{\text{depth}} = W_V^{\text{depth}} \cdot \text{depth\_embeddings}
+Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image embeddings}, \quad K_{\text{depth}} = W_K^{\text{depth}} \cdot \text{depth embeddings}, \quad V_{\text{depth}} = W_V^{\text{depth}} \cdot \text{depth embeddings}
 $$
 
 $$
-\text{Attention}_{\text{image-to-depth}} = \text{softmax}\left(\frac{Q_{\text{image}} K_{\text{depth}}^T}{\sqrt{d_{\text{attn}}}}\right) V_{\text{depth}}
+\text{Attention image-to-depth} = \text{softmax}\left(\frac{Q_{\text{image}} K_{\text{depth}}^T}{\sqrt{d_{\text{attn}}}}\right) V_{\text{depth}}
 $$
 
 A similar process is carried out for depth-to-image attention. Finally, the two attention outputs are concatenated and projected into a final embedding space through a linear layer.

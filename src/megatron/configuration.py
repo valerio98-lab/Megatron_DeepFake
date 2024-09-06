@@ -2,7 +2,6 @@
 
 from typing import Optional
 import torch
-from torch import optim
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -140,7 +139,7 @@ class TransformerConfig(BaseModel):
     pooling_type: str = Field(default="avg")
     dropout: float = Field(default=0.1)
     projector_bool: bool = Field(default=False)
-    activation: str = Field(default='relu')
+    activation: str = Field(default="relu")
 
     def __repr__(self):
         return self.__str__()
@@ -149,7 +148,7 @@ class TransformerConfig(BaseModel):
         return (
             f"TransformerConfig(d_model={self.d_model}, n_heads={self.n_heads}, "
             f"n_layers={self.n_layers}, d_ff={self.d_ff}), dropout={self.dropout}"
-            f"pooling_type={self.pooling_type}, activation={self.activation.__name__}"
+            f"pooling_type={self.pooling_type}, activation={self.activation}"
         )
 
 
@@ -169,40 +168,23 @@ class TrainConfig(BaseModel):
 
     learning_rate: float = Field(default=0.001)
     weight_decay: float = Field(default=0.0)
-    optim: str = Field(default='adam')
+    optim: str = Field(default="adam")
     epochs: int = Field(default=1)
     tmp_dir: str = Field(default="./tmp")
-    log_dir: str 
+    log_dir: str
     early_stop_counter: int = Field(default=10)
     resume_training: bool = Field(default=True)
     train_size: float = Field(default=0.6)
     val_size: float = Field(default=0.3)
-    test_size: float = Field(default=0.1)
-
-    @model_validator(mode="after")
-    def check_values(self):
-        """
-        Custom model validator to check if the sum of train_size, val_size, and test_size is equal to 1.0.
-        Raises:
-            ValueError: If the sum of train_size, val_size, and test_size is not equal to 1.0.
-        Returns:
-            TrainConfig: The updated TrainConfig object.
-        """
-        total = self.train_size + self.val_size + self.test_size
-        if total != 1.0:
-            raise ValueError(
-                f"train_size, val_size, and test_size must sum up to 1.0, but got {total}"
-            )
-        return self
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
         return (
-            f"TrainConfig(learning_rate={self.learning_rate}, epochs={self.epochs}, log_dir={self.log_dir}, "
+            f"TrainConfig(learning_rate={self.learning_rate}, optim ={self.optim} epochs={self.epochs}, log_dir={self.log_dir}, "
             f"early_stop_counter={self.early_stop_counter}, train_size={self.train_size}, "
-            f"val_size={self.val_size}, test_size={self.test_size})"
+            f"val_size={self.val_size})"
         )
 
 

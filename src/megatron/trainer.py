@@ -77,20 +77,24 @@ class Trainer:
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
-
+        optim_kwargs = {
+            "params": self.model.parameters(),
+            "lr": config.train.learning_rate,
+            "weight_decay": config.train.weight_decay,
+        }
         self.criterion = nn.CrossEntropyLoss()
         if self.config.train.optim == "adam":
-            self.optimizer = optim.Adam()
+            self.optimizer = optim.Adam(**optim_kwargs)
         elif self.config.train.optim == "sgd":
-            self.optimizer = optim.SGD()
+            self.optimizer = optim.SGD(**optim_kwargs)
         elif self.config.train.optim == "rmsprop":
-            self.optimizer = optim.RMSprop()
+            self.optimizer = optim.RMSprop(**optim_kwargs)
         else:
             raise ValueError("Unsupported optimizer")
 
-        self.optimizer = self.optimizer(
-            self.model.parameters(), lr=config.train.learning_rate, weight_decay=config.train.weight_decay
-        )
+        # self.optimizer = self.optimizer(
+        #     self.model.parameters(), lr=config.train.learning_rate, weight_decay=config.train.weight_decay
+        # )
         self.log_dir = Path(self.config.train.log_dir)
 
         if self.config.techniques is not None:

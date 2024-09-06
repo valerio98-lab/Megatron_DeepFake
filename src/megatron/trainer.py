@@ -423,7 +423,7 @@ class Trainer:
         writer.flush()
         writer.close()
 
-        return validation_loss
+        return validation_loss, validation_f1_score
 
     def resume_training_if_possible(self):
         """

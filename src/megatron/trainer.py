@@ -325,6 +325,7 @@ class Trainer:
             ),
             total=len(rgb_frames_train_files),
             desc="TRAINING",
+            disable=True,
         ):
 
             rgb_frames = torch.load(rgb_frames_train_file, weights_only=True)
@@ -355,6 +356,7 @@ class Trainer:
                 ),
                 total=len(rgb_frames_val_files),
                 desc="VALIDATING",
+                disable=True,
             ):
                 rgb_frames = torch.load(rgb_frames_val_file, weights_only=True)
                 depth_frames = torch.load(depth_frames_val_file, weights_only=True)
@@ -398,9 +400,9 @@ class Trainer:
                 self._optimized_validation_step(*validation_files)
             )
 
-            print(
-                f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
-            )
+            # print(
+            #     f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
+            # )
             writer.add_scalars(
                 f"Loss/{type(self.model).__name__}",
                 {"train_loss": train_loss, "validation_loss": validation_loss},

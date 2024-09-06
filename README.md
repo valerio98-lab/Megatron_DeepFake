@@ -1,33 +1,201 @@
-# Megatron_DeepFake
+| Type checking | Linting | Try it on colab |
+| :---: | :----: | :------: |
+| [![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://img.shields.io/badge/mypy-checked-blue)| ![type checking: mypy](https://img.shields.io/badge/mypy-checked-blue)| <a target="_blank" href="https://colab.research.google.com/github/valerio98-lab/Megatron_DeepFake/blob/main/notebooks/train.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> |
 
-- [x] Terminare download Dataset
-  - [x] effettuare un download di tutti i video specificando original_youtube_videos come dataset
-  - [x] effettuare un download di tutte le info specificando original_youtube_videos_info come dataset
-  - [x] effettuare un download di tutti i video specificando original-DeepFakeDetection_original come dataset
-  - [x] Scaricare 100 video di ogni tecnica di manipolazione
-- [x] Creare Dataloader per estrazione frame con comportamento lazy iterator e preparazione funzioni di estrazione crop del viso e calcolo DepthMask.
-- [x] Impostare primo step pipeline di face detection ed extraction sfruttando Dlib library.
-- [x] Impostare secondo step pipeline estrazione Depth Mask con DepthAnything, così da avere maschera e RGB pronti da dare in pasto alle due RepVit networks.
-- [x] Impostare terzo step pipeline: 2 RepVit Networks, una che lavora sulla DepthMask e un'altra sull'RGB.
-- [x] Impostare logica di output delle due RepVit: Vettore di tuple (ogni tupla contiene un embedding per l'RGB e un embedding per la Mask)
-- [x] Implementazione Transformer con cross attention e successiva classificazione
-- [x] Classificazione con Softmax
-- [ ] aaaaa
-- [x] Implementare classe e logiche di training
-- [ ] Implementare classe e logiche di inferenza
-- [ ] Ottimizzazione degli Iperparametri per il transformer. 
-- [ ] Ottimizzazione iperparametri Training
-- [ ] Addestramento
-<!-- - [ ] Classificazione Softmax vs Classificazione Geometrica.  -->
-<!-- - [ ] Ricerca miglior approccio per concatenazione di depth_embedding e rgb_embedding -->
+# Introduction
 
+This repo contains the code for a model that we decided to call `Megatron`.
 
-**Filenames form:**
-Original sequences: 
-- All original sequences saved in the youtube folder to integers between 0 and 999
-- The original DeepFakeDetection sequences are stored in the actors folder. The sequence filenames are of the form "actor number__scene name".
+## Abstract
 
-Manipulated sequences:
-- FaceForensics++: All filenames are of the form "target sequence_source sequence".
-- DeepFakeDetection: "target actor_source actor__sequence name__8 charactor long experiment id".
+Recent advancements in deepfake detection have demonstrated the utility of integrating depth information with RGB data to expose synthetic manipulations in static images.[[1]](#1)
+Extending this approach, our work applies a novel model to video sequences, leveraging the temporal continuity and additional context offered by consecutive frames to enhance detection accuracy. We propose an advanced framework that utilizes face depth masks and RGB data concurrently, hypothesizing that dynamic sequences provide richer information than static frames alone.
 
+Critically, we address limitations in existing RGB attention mechanisms by employing a cross-attention mechanism that processes informational embeddings extracted from both RGB and depth data.
+This method allows for a more nuanced interplay between the modalities, focusing on salient features that are pivotal for identifying deepfakes.
+Initial results suggest that this sophisticated attention mechanism significantly refines the detection process, offering promising directions for more robust deepfake recognition technologies.
+
+## Methodology
+
+## Dataset
+
+| Original | Deepfake | Face2Face |
+| :---: | :----: | :------: |
+| ![original](./assets/original_sample.gif)| ![deepfake](./assets/deepfake_sample.gif) | ![face2face](./assets/face2face_sample.gif) |
+
+Our study utilizes the FaceForensics++ dataset [[2]], which is widely recognized for its comprehensive set of video sequences designed explicitly for the training and evaluation of deepfake detection models.
+The dataset includes an original folder and five additional folders that contain samples generated through various deepfake techniques.
+Due to hardware constraints, we limited our focus to two specific types of deepfake generation techniques and applied a unique compression algorithm, differing from the dataset's default, to address computational limitations and explore the impact of compression artifacts on model performance.
+
+### Data preparation
+
+The data preparation process is integral to ensuring the quality and efficacy of the training regimen for deepfake detection.
+Our methodology unfolds through several steps, let's take a sample to show what we actually do:
+
+|Test sample|
+| :-: |
+|![sample](./assets/test_sample.gif)|
+
+1. Frame Extraction: Each video from the FaceForensics++ dataset is dissected into individual frames. This granular breakdown facilitates detailed analysis of each moment captured in the video, allowing for frame-specific deepfake detection.
+
+2. Face Detection: We employ the dlib [[3]] library’s face detection method, which utilizes Histogram of Oriented Gradients (HOG) coupled with a Support Vector Machine (SVM). This method is preferred for its expediency and effectiveness, providing a robust solution for rapidly isolating faces from varied backgrounds and orientations.
+
+    |dlib face extraction|
+    | :-: |
+    |![sample](./assets/test_sample_dlib.gif)|
+
+3. Data Augmentation: To enhance the robustness of our model against diverse manipulations and increase the dataset size, we implement random transformations on the detected faces. This approach presumes the randomness of transformations to artificially expand our dataset, effectively multiplying the number of training samples by the number of transformations applied.
+    |Transformations applied to a sample|
+    | :-: |
+    |![sample](./assets/test_sample_transformations.png)|
+
+4. Depth Estimation: Subsequent to acquiring RGB images of faces, we generate corresponding depth masks using the Depth Anything model [[4]]. This step introduces another dimension of data that our model can utilize to discern authentic from manipulated content.
+    |Face and depth estimation|
+    | :-: |
+    |![sample](./assets/test_sample_face_and_depth.png)|
+5. Tensor Creation: To manage the variability in facial dimensions across frames, we opt for padding rather than resizing. Padding helps maintain the integrity of the face data without introducing geometric distortions that resizing might cause. This step ensures that all input tensors fed into the neural network are of uniform size.
+    |Padded face and depth estimation|
+    | :-: |
+    |![sample](assets/test_sample_face_and_depth_padded.png)|
+
+6. Feature Extraction via RepVit: Citing another paper, AudioLM[[5]],
+
+    > The key underlying mechanism of the best of these models (transformers) is self-attention,  which is suitable for
+    > modeling rich and complex long-range dependencies but,  in the standard form, has a computational cost that grows
+    > quadratically with the length of the input sequences. This cost is acceptable for sequences of up to 1000 tokens, however,
+    > it prevents modeling natural signals in their raw form (for example, modeling a 512 × 512 image at the pixel level).
+    > While several works have explored efficient alternatives to self attention, another solution to this scaling problem
+    > is to work with mappings of the natural signals to a compact, discrete representation space.
+
+    In particular we retrive a discrete rapresentation of both rgb frames and depth frames.
+    By leveraging the RepVit model [[6]] we extract embeddings for subsequent processing.
+
+    |Embeddings extraction|
+    | :-: |
+    |![sample](assets/test_sample_embeddings.png)|
+
+    This adaptation not only accelerates the computation but also maintains the efficacy of the model under varying input sizes.
+
+This methodology, from frame extraction to embedding generation, is designed to capture a comprehensive spectrum of features that are essential for accurate deepfake detection, utilizing both spatial and temporal data efficiently.
+
+### Optimizations
+
+In addressing the challenges posed by the computational constraints of Google Colab and the extensive requirements of our deepfake detection model, we implemented several key optimizations to enhance training efficiency and manage data processing effectively.
+
+#### Embedding caching
+
+The generation and processing of data, particularly with the augmented size due to transformations, introduced a significant bottleneck in the performance of our training processes.
+A critical issue was the repeated computation of embeddings for identical input frames across different training iterations.
+To resolve this, we adopted a strategy of caching the RepVit embeddings.
+By storing these embeddings post-calculation, we drastically reduced the need for redundant computations.
+The storage footprint for these embeddings is minimal, with a tensor comprising 128 elements, each representing 20 frames with an embedding dimension of 384, occupying approximately 5 MB.
+This approach not only conserves memory but also accelerates the training phase by eliminating repetitive processing tasks.
+
+#### Sequence Integrity and Batch Consistency
+
+Our model assumes that video frames are sequential, which presents a unique challenge when certain frames fail to detect a face using dlib, or when such frames yield errors with the 'depth_anything' model.
+The absence or faultiness of expected data in certain frames can disrupt the sequence integrity and affect batch processing.
+Having diverse elements in a batch during training, especially in machine learning contexts like deepfake detection or other image processing tasks, is crucial for several reasons:
+
+- Generalization: A diverse batch ensures that the model encounters a wide range of data variations (e.g., different lighting conditions, ages, ethnicities, expressions in faces). This diversity helps the model to generalize better to unseen data rather than just memorizing specific examples.
+- Avoiding Bias: If the training batches repeatedly contain similar types of data, the model might develop a bias towards those features. For instance, if a facial recognition model is mostly trained on images of people from a single ethnicity, it might perform poorly on other ethnicities. Diverse batches help in reducing this risk.
+- Robustness: Exposure to a wide variety of data during training can enhance the model’s robustness to noise, distortions, or variations in real-world scenarios. This is particularly important in applications like deepfake detection where subtle cues and differences need to be discerned accurately.
+- Effective Learning: Diverse batches ensure that each update of the model's weights during training is informative and represents the overall distribution of the data. This can lead to more effective and efficient learning, preventing the model from overfitting to a narrow subset of the data.
+- Balanced Learning: When training on imbalanced datasets, ensuring diversity in each batch can help mitigate the dominance of the majority class by giving adequate representation to minority classes within each training step.
+To address this, we implemented an aggregation technique that ensures the maintenance of the required batch size, even when some elements within the data are invalid or absent. This method involves strategically filling in or ignoring deficient frames to preserve the continuous flow and consistency of data batches.
+
+#### Impact on training time
+
+The combined effect of embedding caching and batch consistency optimization has led to a significant reduction in training time.
+By streamlining the data preparation and embedding generation processes, and ensuring consistent batch processing, we have achieved a more efficient training cycle.
+This allows for quicker iterations and adaptations of the model, enhancing our ability to refine and improve detection accuracy within the constraints of our computational environment.
+
+### Transformer Architecture
+
+The chosen architecture for video recognition and classification is a transformer-based model, similar to an encoder. The goal of the transformer is to perform binary classification by leveraging three types of information: two spatial types (RGB images and depth masks) and one temporal type, which is the temporal relationship between successive frames.
+
+![model](assets/model.png)
+
+#### Model Input
+
+The transformer receives two types of input batches:
+
+- **RGB Batch**: Each element of this batch represents a sequence of RGB frames, with each frame encoded into an embedding of size 384.
+- **Depth Batch**: Each element of this batch represents a sequence of frames containing depth information, also represented as embeddings of size 384.
+
+Each batch element represents a temporal sequence of frames, as shown in the figure below. For example, each element of the `batch_RGB_frame` represents a series of frames, each represented by an embedding of size 384.
+
+![Embedding Image](assets/batch.jpg)
+
+#### Processing Batches with Multi-Head Attention
+
+The two types of input batches are processed in parallel through several transformer layers with multi-head self-attention mechanisms. Each transformer layer aims to model both the spatial and temporal relationships within each batch. This allows the model to better understand the dynamics within the temporal sequences and the relationships between different frames.
+
+Multi-head attention is calculated separately for the RGB and depth batches. For each layer, the attention scores are computed using the following formula:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+$$
+
+where \( Q \) (query), \( K \) (key), and \( V \) (value) are linear projections of the inputs, and \( d_k \) is the key dimension. The multi-head mechanism allows the model to consider information from different "perspectives" or latent subspaces simultaneously.
+
+![Self-Attention Process Image](assets/multi-head-attention-peltarion.png)
+
+#### Cross Attention
+
+After the various transformer layers have processed the two batches in parallel, the resulting attention scores are fed into a final cross-attention layer. The cross-attention block is designed to enable interaction between the two different information sources (RGB and depth) to produce a combined representation. This allows the model to integrate the most relevant information from both modalities for a more accurate final classification decision.
+
+Cross-attention is calculated as follows:
+
+$$
+Q_{\text{image}} = W_Q^{\text{image}} \cdot \text{image embeddings}, \quad K_{\text{depth}} = W_K^{\text{depth}} \cdot \text{depth embeddings}, \quad V_{\text{depth}} = W_V^{\text{depth}} \cdot \text{depth embeddings}
+$$
+
+$$
+\text{Attention image-to-depth} = \text{softmax}\left(\frac{Q_{\text{image}} K_{\text{depth}}^T}{\sqrt{d_{\text{attn}}}}\right) V_{\text{depth}}
+$$
+
+A similar process is carried out for depth-to-image attention. Finally, the two attention outputs are concatenated and projected into a final embedding space through a linear layer.
+
+![Cross-Attention Process Image](assets/cross.png)
+
+#### Pooling and Final Classification
+
+After fusing the information through cross-attention, a simple adaptive pooling layer is applied to compress the final representation into a fixed dimension. This enables the model to compute logits for classification using a linear layer.
+
+The model's final output is obtained through a linear layer that takes the compressed representation and produces logits for binary classification.
+
+## Model Selection Rationale
+
+### Efficiency Requirements
+
+The project’s overarching goal was to create a deepfake detection system that is not only effective but also efficient, adhering to stringent requirements concerning memory use, processing speed, and adaptability to constrained environments such as mobile devices.
+These requirements dictated our choice of models, influencing both the architecture selection and the subsequent optimization strategies.
+
+### Model Choice and Adaptation
+
+Mobile-Friendly Models: The primary consideration was selecting models that are inherently designed for efficiency, particularly suitable for deployment in mobile environments where computational resources are limited. This requirement led us to choose models with proven efficiency in such settings.
+
+### Efficiency Techniques
+
+HW/Algorithm Co-Design: Considering the hardware limitations typical of mobile environments, we focused on HW/Algorithm co-design.
+This approach ensures that the chosen models not only fit within the computational budgets of mobile devices but also exploit the specific hardware capabilities effectively. The RepVit model, with its simplified and compact architecture, aligns well with this strategy, optimizing both memory usage and processing speed.
+
+Knowledge Distillation: To further enhance efficiency, we applied knowledge distillation techniques during the training process. This method involves training a smaller, more compact "student" model to replicate the performance of a larger "teacher" model. By distilling the knowledge from complex models into a more manageable form, we maintain high accuracy while significantly reducing the computational burden.
+
+Memory Efficiency: In addition to model selection and design adaptations, memory efficiency was a critical aspect. By caching the embeddings generated by RepVit, we drastically reduced redundant computations and minimized memory usage, which is paramount in a mobile setting where RAM and storage are limited.
+
+## References
+
+<a id="1">[1]</a>  [A guided-based approach for deepfake detection:RGB-depth integration via
+ features fusion](https://www.sciencedirect.com/science/article/pii/S0167865524000990)
+
+<a id ="2">[2]</a> [FaceForensics++: Learning to Detect Manipulated Facial Images](https://arxiv.org/pdf/1901.08971)
+
+<a id ="3">[3]</a> [Dlib: a modern C++ toolkit containing machine learning algorithms](http://dlib.net/)
+
+<a id ="4">[4]</a> [Depth Anything V2](https://depth-anything-v2.github.io/)
+
+<a id ="5">[5]</a> [AudioLM: a LAnguage modeling approach to audio generation](https://arxiv.org/pdf/2209.03143)
+
+<a id ="6">[6]</a> [RepVit](https://arxiv.org/pdf/2307.09283)

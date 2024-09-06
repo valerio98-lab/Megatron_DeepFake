@@ -1,6 +1,5 @@
 """This module contains the necessary classes for configuring each experiment"""
 
-from os import PathLike
 from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
@@ -17,7 +16,7 @@ class DatasetConfig(BaseModel):
         num_video (int, optional): The number of videos. Defaults to 20.
     """
 
-    video_path: PathLike
+    video_path: str
     num_frames: int = Field(default=20)
     random_initial_frame: bool = Field(default=False)
     depth_anything_size: str = Field(default="Small")
@@ -76,8 +75,8 @@ class DataloaderConfig(BaseModel):
     # cached_batch_size: int = Field(default=8)
     shuffle: bool = Field(default=True)
     repvit_model: str = Field(default="repvit_m0_9.dist_300e_in1k")
-    pin_memory: bool = Field(default=True)
-    num_workers: int = Field(default=True)
+    pin_memory: bool = Field(default=False)
+    num_workers: int = Field(default=0)
 
     @model_validator(mode="after")
     def check_values(self):

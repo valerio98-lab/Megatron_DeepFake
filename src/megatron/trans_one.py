@@ -6,11 +6,12 @@ import torch.nn.functional as F
 
 
 class CrossAttention(nn.Module):
-    def __init__(self, d_image: int, d_depth: int, d_attn: int):
+    def __init__(self, d_image: int, d_depth: int, d_attn: int, dropout:float = 0.1):
         super().__init__()
         self.d_image = d_image
         self.d_depth = d_depth
         self.d_attn = d_attn
+        self.dropout = nn.Dropout(dropout)
 
         self.W_Q_image = nn.Linear(d_image, d_attn)
         self.W_K_depth = nn.Linear(d_depth, d_attn)
@@ -52,9 +53,13 @@ class CrossAttention(nn.Module):
         attn_weights_image_to_depth = F.softmax(
             attn_scores_image_to_depth, dim=-1
         )  # (batch_size, seq_len, seq_len)
+
+        attn_weights_image_to_depth = self.dropout(attn_weights_image_to_depth)
+
         output_image_to_depth = torch.bmm(
             attn_weights_image_to_depth, V_depth
         )  # (batch_size, seq_len, d_attn)
+
 
         Q_depth = self.W_Q_depth(depth_embeddings)
         K_image = self.W_K_image(image_embeddings)
@@ -70,6 +75,9 @@ class CrossAttention(nn.Module):
         attn_weights_depth_to_image = F.softmax(
             attn_scores_depth_to_image, dim=-1
         )  # (batch_size, seq_len, seq_len)
+
+        attn_weights_depth_to_image = self.dropout(attn_weights_depth_to_image)
+
         output_depth_to_image = torch.bmm(
             attn_weights_depth_to_image, V_image
         )  # (batch_size, seq_len, d_attn)
@@ -90,15 +98,17 @@ class TransformerEncoder(nn.Module):
         n_heads,
         n_layers,
         d_ff,
-        dropout=0.1,
+        dropout:float=0.1,
+        activation=F.relu,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
-            [TransformerEncoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
+            [TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, activation) for _ in range(n_layers)]
         )
         self.cross_attn = CrossAttention(d_model, d_model, d_model)
         self.norm_rgb = nn.LayerNorm(d_model)
         self.norm_depth = nn.LayerNorm(d_model)
+        self.dropout = dropout
 
     def forward(
         self, rgb_features: torch.Tensor, depth_features: torch.Tensor
@@ -110,12 +120,12 @@ class TransformerEncoder(nn.Module):
         rgb_features = self.norm_rgb(rgb_features)
         depth_features = self.norm_depth(depth_features)
 
-        output = self.cross_attn(rgb_features, depth_features)
+        output = self.cross_attn(rgb_features, depth_features, dropout=self.dropout)
         return output
 
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model, n_heads, d_ff, dropout=0.1):
+    def __init__(self, d_model, n_heads, d_ff, dropout=0.1, activation=F.relu):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
         self.linear1 = nn.Linear(d_model, d_ff)
@@ -123,13 +133,14 @@ class TransformerEncoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
+        self.activation = activation
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_norm1 = self.norm1(x)
         x_attn = self.self_attn(x_norm1, x_norm1, x_norm1)[0]
         x = x + x_attn  # skip connection
         x_norm2 = self.norm2(x)
-        x_f1 = self.dropout(F.relu(self.linear1(x_norm2)))
+        x_f1 = self.dropout(self.activation(self.linear1(x_norm2)))
         x = x + self.linear2(x_f1)  # skip connection with dropout
         return x
 
@@ -166,17 +177,22 @@ class TransformerFakeDetector(nn.Module):
         d_ff,
         num_classes,
         dropout=0.1,
-        d_input_features=None,
+        pooling_type='avg',
+        activation=F.relu,
         projector_bool=False,
     ):
         super().__init__()
         self.projector_bool = projector_bool
-        if d_input_features is not None:
-            self.projector = FeatureProjector(d_input_features, d_model)
-        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff, dropout)
+        if self.projector_bool: 
+            self.projector = FeatureProjector(384, d_model)
+        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff, dropout, activation)
         self.classifier = nn.Linear(d_model, num_classes)
-        self.projector_bool = projector_bool
-        self.pool = nn.AdaptiveAvgPool1d(1)
+        if pooling_type == 'avg':
+            self.pool = nn.AdaptiveAvgPool1d(1)
+        elif pooling_type == 'max':
+            self.pool = nn.AdaptiveMaxPool1d(1)
+        else:
+            raise ValueError("Unsupported pooling type")
 
     def forward(self, rgb_batch, depth_batch):
 

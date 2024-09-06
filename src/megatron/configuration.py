@@ -1,6 +1,8 @@
 """This module contains the necessary classes for configuring each experiment"""
 
 from typing import Optional
+import torch
+from torch import optim
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -135,7 +137,10 @@ class TransformerConfig(BaseModel):
     n_heads: int = Field(default=2)
     n_layers: int = Field(default=1)
     d_ff: int = Field(default=1024)
+    pooling_type: str = Field(default="avg")
     dropout: float = Field(default=0.1)
+    projector_bool: bool = Field(default=False)
+    activation: torch.nn.Module = Field(default=torch.nn.ReLU)
 
     def __repr__(self):
         return self.__str__()
@@ -144,6 +149,7 @@ class TransformerConfig(BaseModel):
         return (
             f"TransformerConfig(d_model={self.d_model}, n_heads={self.n_heads}, "
             f"n_layers={self.n_layers}, d_ff={self.d_ff}), dropout={self.dropout}"
+            f"pooling_type={self.pooling_type}, activation={self.activation.__name__}"
         )
 
 
@@ -162,6 +168,8 @@ class TrainConfig(BaseModel):
     """
 
     learning_rate: float = Field(default=0.001)
+    weight_decay: float = Field(default=0.0)
+    optim: torch.Optimizer = Field(default=optim.Adam)
     epochs: int = Field(default=1)
     tmp_dir: str = Field(default="./tmp")
     log_dir: str

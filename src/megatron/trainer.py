@@ -61,7 +61,7 @@ class Trainer:
             self.device
         )
         self.positional_encoding = PositionalEncoding(
-            self.config.transformer.d_model, max_len=self.config.dataset.num_frames
+            384, max_len=self.config.dataset.num_frames
         ).to(self.device)
         self.model = TransformerFakeDetector(
             d_model=self.config.transformer.d_model,
@@ -69,15 +69,18 @@ class Trainer:
             n_layers=self.config.transformer.n_layers,
             d_ff=self.config.transformer.d_ff,
             num_classes=2,
+            projector_bool=self.config.transformer.projector_bool,
             dropout=self.config.transformer.dropout,
+            pooling_type=self.config.transformer.pooling_type,
+            activation=self.config.transformer.activation,
         ).to(self.device)
         self.train_dataloader, self.val_dataloader, self.test_dataloader = (
             self.initialize_dataloader()
         )
 
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(
-            self.model.parameters(), lr=config.train.learning_rate
+        self.optimizer = self.config.train.optim(
+            self.model.parameters(), lr=config.train.learning_rate, weight_decay=config.train.weight_decay
         )
         self.log_dir = Path(self.config.train.log_dir)
 
@@ -89,7 +92,7 @@ class Trainer:
                 / f"num_frames_{self.config.dataset.num_frames}"
                 / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
                 / f"repvit_model_{self.config.dataloader.repvit_model}".replace(".", "")
-                / f"d_model_{self.config.transformer.d_model}"
+                / "d_model_384"
             )
         else:
             self.tmp = (
@@ -99,7 +102,7 @@ class Trainer:
                 / f"num_frames_{self.config.dataset.num_frames}"
                 / f"depth_anything_size_{self.config.dataset.depth_anything_size}"
                 / f"repvit_model_{self.config.dataloader.repvit_model}".replace(".", "")
-                / f"d_model_{self.config.transformer.d_model}"
+                / "d_model_384"
             )
         self.accuracy: BinaryAccuracy = BinaryAccuracy().to(self.device)
         self.f1_score: MulticlassF1Score = MulticlassF1Score(num_classes=2).to(
@@ -319,6 +322,7 @@ class Trainer:
             train_loss += loss.item()
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
         train_loss /= len(self.train_dataloader)
         return train_loss

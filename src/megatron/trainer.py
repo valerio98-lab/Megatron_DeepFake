@@ -423,6 +423,8 @@ class Trainer:
         writer.flush()
         writer.close()
 
+        return validation_loss
+
     def resume_training_if_possible(self):
         """
         Resume training from the last checkpoint if available.

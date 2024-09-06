@@ -178,14 +178,22 @@ class TransformerFakeDetector(nn.Module):
         num_classes,
         dropout=0.1,
         pooling_type='avg',
-        activation=F.relu,
+        activation='relu',
         projector_bool=False,
     ):
         super().__init__()
+
+        if activation == 'relu':
+            self.activation = nn.ReLU()
+        if activation == 'gelu':
+            self.activation = nn.GELU()
+        if activation == 'leaky_relu':
+            self.activation = nn.LeakyReLU()
+
         self.projector_bool = projector_bool
         if self.projector_bool: 
             self.projector = FeatureProjector(384, d_model)
-        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff, dropout, activation)
+        self.encoder = TransformerEncoder(d_model, n_heads, n_layers, d_ff, dropout, self.activation)
         self.classifier = nn.Linear(d_model, num_classes)
         if pooling_type == 'avg':
             self.pool = nn.AdaptiveAvgPool1d(1)
@@ -193,7 +201,7 @@ class TransformerFakeDetector(nn.Module):
             self.pool = nn.AdaptiveMaxPool1d(1)
         else:
             raise ValueError("Unsupported pooling type")
-
+        
     def forward(self, rgb_batch, depth_batch):
 
         if self.projector_bool:

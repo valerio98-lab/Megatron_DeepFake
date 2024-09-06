@@ -79,7 +79,16 @@ class Trainer:
         )
 
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = self.config.train.optim(
+        if self.config.train.optim == "adam":
+            self.optimizer = optim.Adam()
+        elif self.config.train.optim == "sgd":
+            self.optimizer = optim.SGD()
+        elif self.config.train.optim == "rmsprop":
+            self.optimizer = optim.RMSprop()
+        else:
+            raise ValueError("Unsupported optimizer")
+
+        self.optimizer = self.optimizer(
             self.model.parameters(), lr=config.train.learning_rate, weight_decay=config.train.weight_decay
         )
         self.log_dir = Path(self.config.train.log_dir)

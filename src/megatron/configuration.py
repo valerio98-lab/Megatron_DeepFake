@@ -140,7 +140,7 @@ class TransformerConfig(BaseModel):
     pooling_type: str = Field(default="avg")
     dropout: float = Field(default=0.1)
     projector_bool: bool = Field(default=False)
-    activation: torch.nn.Module = Field(default=torch.nn.ReLU, arbitrary_types_allowed=True)
+    activation: str = Field(default='relu')
 
     def __repr__(self):
         return self.__str__()
@@ -169,7 +169,7 @@ class TrainConfig(BaseModel):
 
     learning_rate: float = Field(default=0.001)
     weight_decay: float = Field(default=0.0)
-    optim: torch.Optimizer = Field(default=optim.Adam, arbitrary_types_allowed=True)
+    optim: str = Field(default='adam')
     epochs: int = Field(default=1)
     tmp_dir: str = Field(default="./tmp")
     log_dir: str 

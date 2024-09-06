@@ -105,10 +105,10 @@ class TransformerEncoder(nn.Module):
         self.layers = nn.ModuleList(
             [TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, activation) for _ in range(n_layers)]
         )
-        self.cross_attn = CrossAttention(d_model, d_model, d_model)
+        self.cross_attn = CrossAttention(d_model, d_model, d_model, dropout)
         self.norm_rgb = nn.LayerNorm(d_model)
         self.norm_depth = nn.LayerNorm(d_model)
-        self.dropout = dropout
+        self.dropout = nn.Dropout(dropout)
 
     def forward(
         self, rgb_features: torch.Tensor, depth_features: torch.Tensor
@@ -120,7 +120,7 @@ class TransformerEncoder(nn.Module):
         rgb_features = self.norm_rgb(rgb_features)
         depth_features = self.norm_depth(depth_features)
 
-        output = self.cross_attn(rgb_features, depth_features, dropout=self.dropout)
+        output = self.cross_attn(rgb_features, depth_features)
         return output
 
 

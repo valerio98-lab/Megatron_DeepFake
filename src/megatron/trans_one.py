@@ -138,10 +138,10 @@ class TransformerEncoderLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_norm1 = self.norm1(x)
         x_attn = self.self_attn(x_norm1, x_norm1, x_norm1)[0]
-        x = x + x_attn  # skip connection
-        x_norm2 = self.norm2(x)
+        #x = x + x_attn  # skip connection
+        x_norm2 = self.norm2(x_attn)
         x_f1 = self.dropout(self.activation(self.linear1(x_norm2)))
-        x = x + self.linear2(x_f1)  # skip connection with dropout
+        x = self.linear2(x_f1)  # skip connection with dropout
         return x
 
 

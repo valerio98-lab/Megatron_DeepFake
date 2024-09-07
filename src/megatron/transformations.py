@@ -227,29 +227,29 @@ TransformationFunction = Callable[..., np.ndarray]
 # List of transformations without string names
 TRANSFORMATIONS: List[Tuple[TransformationFunction, ParameterGenerator]] = [
     (identity, lambda: {}),
-    (rotate, lambda: {"angle": random.randint(-45, 45)}),
-    (horizontal_flip, lambda: {}),
-    (vertical_flip, lambda: {}),
-    (
-        crop,
-        lambda: {
-            "start_x": random.randint(0, 100),
-            "start_y": random.randint(0, 100),
-            "width": random.randint(100, 300),
-            "height": random.randint(100, 300),
-        },
-    ),
+    # (rotate, lambda: {"angle": random.randint(-45, 45)}),
+    # (horizontal_flip, lambda: {}),
+    # (vertical_flip, lambda: {}),
+    # (
+    #     crop,
+    #     lambda: {
+    #         "start_x": random.randint(0, 100),
+    #         "start_y": random.randint(0, 100),
+    #         "width": random.randint(100, 300),
+    #         "height": random.randint(100, 300),
+    #     },
+    # ),
     (adjust_brightness, lambda: {"value": random.randint(20, 100)}),
     (perspective_transform, lambda: {}),
-    (
-        random_erasing,
-        lambda: {
-            "probability": random.uniform(0.3, 0.7),
-            "sl": random.uniform(0.02, 0.05),
-            "sh": random.uniform(0.2, 0.5),
-            "r1": random.uniform(0.2, 1.0),
-        },
-    ),
+    # (
+    #     random_erasing,
+    #     lambda: {
+    #         "probability": random.uniform(0.3, 0.7),
+    #         "sl": random.uniform(0.02, 0.05),
+    #         "sh": random.uniform(0.2, 0.5),
+    #         "r1": random.uniform(0.2, 1.0),
+    #     },
+    # ),
     (add_gaussian_noise, lambda: {}),
     (adjust_contrast, lambda: {"factor": random.uniform(0.8, 2.0)}),
 ]

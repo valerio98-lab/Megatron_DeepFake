@@ -400,9 +400,9 @@ class Trainer:
                 self._optimized_validation_step(*validation_files)
             )
 
-            # print(
-            #     f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
-            # )
+            print(
+                f"\nEpoch: {epoch} ==> {validation_loss=}, {validation_accuracy=}, {validation_f1_score=}\n"
+            )
             writer.add_scalars(
                 f"Loss/{type(self.model).__name__}",
                 {"train_loss": train_loss, "validation_loss": validation_loss},
